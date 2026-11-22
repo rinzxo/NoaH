@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const config = require('./config');
 const reminder = require('./reminder');
+const { searchWeb } = require('./search');
 
 let genAI = null;
 let modelWithTools = null;
@@ -56,6 +57,20 @@ const tools = [
                     description: 'Nama tugas/kegiatan yang ingin dibatalkan.'
                 }
             }
+        }
+    },
+    {
+        name: 'cari_informasi_web',
+        description: 'Mencari informasi terkini, berita, fakta, harga, cuaca, atau data dari internet. Dipanggil saat Laksmana meminta mencari informasi atau menanyakan hal-hal yang membutuhkan data live/terbaru.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                query: {
+                    type: 'STRING',
+                    description: 'Kata kunci pencarian yang ringkas dan relevan (contoh: "jadwal bola timnas", "kurs dollar hari ini", "cuaca jakarta", "gempa terkini").'
+                }
+            },
+            required: ['query']
         }
     }
 ];
@@ -183,6 +198,27 @@ async function handleOwnerMessage(userText, senderJid) {
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
+            }
+
+            // Tool: cari_informasi_web
+            if (call.name === 'cari_informasi_web') {
+                const { query } = call.args;
+                console.log(`🔍 [NoaH Web Search] Mencari info: "${query}"`);
+                const rawSearch = await searchWeb(query);
+
+                const searchPrompt = `Bapak Laksmana bertanya: "${userText}".
+Berikut informasi terkini dari hasil pencarian web untuk "${query}":
+${rawSearch}
+
+Tugas:
+Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, akurat, dan sopan seperti asisten pribadi terbaik.`;
+
+                const summaryResult = await modelGeneral.generateContent(searchPrompt);
+                const reply = summaryResult.response.text().trim();
+
+                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'model', reply);
+                return reply;
             }
         }
 
