@@ -244,39 +244,16 @@ async function handleMessage(from, text) {
         return;
     }
 
-    // 5. Natural Conversational AI Assistant (Tanpa perlu command)
+    // 5. Real AI Assistant dengan Gemini Function Calling (AI Tools)
     try {
-        const activeReminders = reminder.listReminders(from);
-        const aiResult = await ai.processAssistantMessage(text, activeReminders);
-
-        if (aiResult) {
-            // Aksi: Buat Pengingat
-            if (aiResult.action === 'CREATE_REMINDER' && aiResult.reminder?.targetTimeISO) {
-                const targetDate = new Date(aiResult.reminder.targetTimeISO);
-                if (!isNaN(targetDate.getTime()) && targetDate.getTime() > Date.now()) {
-                    reminder.addReminder(aiResult.reminder.text || text, targetDate, from, {
-                        voiceNote: true,
-                        call: Boolean(aiResult.reminder.call)
-                    });
-                }
-            }
-            // Aksi: Batalkan Pengingat
-            else if (aiResult.action === 'CANCEL_REMINDER' && aiResult.cancelId) {
-                reminder.cancelReminder(aiResult.cancelId, from);
-            }
-
-            // Balas dengan respon personal dan natural dari AI
-            if (aiResult.reply) {
-                await sock.sendMessage(from, { text: aiResult.reply });
-                return;
-            }
+        const reply = await ai.handleUserMessageWithAI(text, from);
+        if (reply) {
+            await sock.sendMessage(from, { text: reply });
+            return;
         }
-
-        // Fallback jika respon AI kosong
-        await sock.sendMessage(from, { text: 'Ada yang bisa saya bantu? Kamu bisa meminta saya mengingatkan sesuatu atau bertanya apa saja.' });
     } catch (err) {
         console.error('[Handler AI Error]:', err.message);
-        await sock.sendMessage(from, { text: 'Maaf, saya sedang memproses terlalu banyak data sejenak. Coba tanyakan lagi ya!' });
+        await sock.sendMessage(from, { text: 'Maaf, asisten AI sedang memproses terlalu banyak data sejenak. Coba tanyakan lagi ya!' });
     }
 }
 
