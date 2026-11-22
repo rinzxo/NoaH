@@ -3,30 +3,31 @@ const config = require('./config');
 const reminder = require('./reminder');
 
 let genAI = null;
-let model = null;
+let modelWithTools = null;
+let modelGeneral = null;
 
 const tools = [
     {
         name: 'buat_pengingat',
-        description: 'Membuat jadwal pengingat (reminder) baru untuk pengguna. Dipanggil ketika pengguna meminta diingatkan, memesan alarm, atau membuat janji/kegiatan.',
+        description: 'Membuat jadwal pengingat baru untuk Laksmana.',
         parameters: {
             type: 'OBJECT',
             properties: {
                 pesan: {
                     type: 'STRING',
-                    description: 'Isi pengingat atau kegiatan yang harus dilakukan (contoh: "Angkat jemuran", "Minum obat", "Meeting klien").'
+                    description: 'Isi pengingat atau tugas (contoh: "Minum obat", "Meeting klien", "Transfer tagihan").'
                 },
                 menit_dari_sekarang: {
                     type: 'NUMBER',
-                    description: 'Jumlah menit dari sekarang pengingat harus dibunyikan (contoh: 10, 15, 60, 120).'
+                    description: 'Jumlah menit dari sekarang pengingat harus berdering.'
                 },
                 jam_spesifik: {
                     type: 'STRING',
-                    description: 'Jam spesifik berbunyi format HH:mm (contoh: "14:30", "09:00", "20:00").'
+                    description: 'Jam spesifik berbunyi format HH:mm (contoh: "14:30", "09:00").'
                 },
                 dengan_telepon: {
                     type: 'BOOLEAN',
-                    description: 'True jika pengguna meminta ditelepon / panggilan suara, false jika cukup chat & pesan suara.'
+                    description: 'True jika Laksmana meminta ditelepon / panggilan suara.'
                 }
             },
             required: ['pesan']
@@ -34,7 +35,7 @@ const tools = [
     },
     {
         name: 'lihat_daftar_pengingat',
-        description: 'Melihat seluruh daftar pengingat yang sedang aktif dan belum selesai.',
+        description: 'Melihat seluruh daftar pengingat Laksmana yang sedang aktif.',
         parameters: {
             type: 'OBJECT',
             properties: {}
@@ -48,11 +49,11 @@ const tools = [
             properties: {
                 id_pengingat: {
                     type: 'STRING',
-                    description: 'ID unik pengingat jika pengguna menyebutkannya (contoh: "k9x2m").'
+                    description: 'ID pengingat jika diketahui.'
                 },
                 kata_kunci: {
                     type: 'STRING',
-                    description: 'Kata kunci nama kegiatan yang ingin dibatalkan jika ID tidak diketahui (contoh: "jemuran", "obat").'
+                    description: 'Nama tugas/kegiatan yang ingin dibatalkan.'
                 }
             }
         }
@@ -62,58 +63,52 @@ const tools = [
 if (config.geminiApiKey) {
     try {
         genAI = new GoogleGenerativeAI(config.geminiApiKey);
-        model = genAI.getGenerativeModel({
+        modelWithTools = genAI.getGenerativeModel({
             model: config.geminiModel || 'gemini-3.5-flash-lite',
             tools: [{ functionDeclarations: tools }]
         });
+        modelGeneral = genAI.getGenerativeModel({
+            model: config.geminiModel || 'gemini-3.5-flash-lite'
+        });
     } catch (e) {
-        console.warn('[AI] Inisialisasi Gemini Tools gagal:', e.message);
+        console.warn('[AI] Inisialisasi Gemini gagal:', e.message);
     }
 }
 
-// Memory percakapan singkat per pengirim
-const chatSessions = new Map();
+// Memory percakapan singkat
+const ownerChatHistory = [];
+const guestChatHistory = new Map(); // guestJid -> history
 
-function getChatSession(senderJid) {
-    if (!chatSessions.has(senderJid)) {
-        chatSessions.set(senderJid, []);
-    }
-    return chatSessions.get(senderJid);
-}
-
-function addToHistory(senderJid, role, text) {
-    const history = getChatSession(senderJid);
-    history.push({ role, parts: [{ text }] });
-    if (history.length > 10) history.shift();
+function addHistory(historyArr, role, text) {
+    historyArr.push({ role, parts: [{ text }] });
+    if (historyArr.length > 10) historyArr.shift();
 }
 
 /**
- * Handle pesan masuk menggunakan Gemini AI Function Calling (AI Tools)
+ * 1. Menangani pesan langsung dari Laksmana (Owner) ke NoaH
  */
-async function handleUserMessageWithAI(userText, senderJid) {
-    if (!model) {
-        return 'Maaf, kunci Gemini API belum terpasang dengan benar di .env.';
+async function handleOwnerMessage(userText, senderJid) {
+    if (!modelWithTools) {
+        return 'Maaf Pak Laksmana, API Gemini belum terhubung di sistem.';
     }
 
     const now = new Date();
     const nowJakarta = now.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-    const systemContext = `[Sistem: Kamu adalah Noah, asisten pribadi privat AI WhatsApp yang cerdas, sopan, dan sigap. Waktu saat ini di Jakarta: ${nowJakarta} (${now.toISOString()}). Gunakan tools yang tersedia jika pengguna ingin membuat, melihat, atau membatalkan pengingat.]`;
+    const systemContext = `[Sistem: Kamu adalah NoaH, asisten pribadi setia dan cerdas dari Bapak Laksmana. Waktu Jakarta: ${nowJakarta}. Bersikaplah sangat hormat, hangat, sigap, dan solutif. Panggil beliau "Pak Laksmana" atau "Mas Laksmana". Gunakan tools yang tersedia jika beliau ingin membuat jadwal, melihat agenda, atau membatalkan pengingat.]`;
 
-    const history = getChatSession(senderJid);
     const contents = [
-        ...history,
-        { role: 'user', parts: [{ text: `${systemContext}\nPengguna: ${userText}` }] }
+        ...ownerChatHistory,
+        { role: 'user', parts: [{ text: `${systemContext}\nLaksmana: ${userText}` }] }
     ];
 
     try {
-        const result = await model.generateContent({ contents });
+        const result = await modelWithTools.generateContent({ contents });
         const response = result.response;
         const functionCalls = response.functionCalls();
 
-        // 1. Jika Gemini memanggil Tool
         if (functionCalls && functionCalls.length > 0) {
             const call = functionCalls[0];
-            console.log(`🤖 [AI Tool Call] Memanggil tool "${call.name}" dengan parameter:`, call.args);
+            console.log(`🤖 [NoaH Tool] Eksekusi "${call.name}":`, call.args);
 
             // Tool: buat_pengingat
             if (call.name === 'buat_pengingat') {
@@ -125,7 +120,7 @@ async function handleUserMessageWithAI(userText, senderJid) {
                 } else if (jam_spesifik) {
                     targetDate = reminder.parseRelativeTime(jam_spesifik);
                 } else {
-                    targetDate = new Date(Date.now() + 10 * 60 * 1000); // default 10m
+                    targetDate = new Date(Date.now() + 10 * 60 * 1000);
                 }
 
                 const item = reminder.addReminder(pesan, targetDate, senderJid, {
@@ -133,14 +128,14 @@ async function handleUserMessageWithAI(userText, senderJid) {
                     call: Boolean(dengan_telepon)
                 });
 
-                const reply = `✅ *Siap! Pengingat Berhasil Dicatat*\n\n` +
+                const reply = `Siap Pak Laksmana! Pengingat telah saya jadwalkan:\n\n` +
                     `📝 *Kegiatan:* ${item.text}\n` +
                     `🕒 *Waktu:* ${item.targetTimeString}\n` +
-                    `🔔 *Notifikasi:* Pesan WA + Voice Note ${item.call ? '+ Panggilan Telepon' : ''}\n\n` +
-                    `_Saya akan langsung kabari kamu begitu waktunya tiba!_`;
+                    `🔔 *Notifikasi:* Teks WA + Voice Note ${item.call ? '+ Telepon Langsung' : ''}\n\n` +
+                    `Tenang saja, saya akan ingatkan tepat pada waktunya.`;
 
-                addToHistory(senderJid, 'user', userText);
-                addToHistory(senderJid, 'model', reply);
+                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
 
@@ -149,17 +144,17 @@ async function handleUserMessageWithAI(userText, senderJid) {
                 const list = reminder.listReminders(senderJid);
                 let reply = '';
                 if (list.length === 0) {
-                    reply = '📭 Saat ini belum ada jadwal pengingat yang aktif. Ada yang ingin kamu jadwalkan?';
+                    reply = 'Saat ini belum ada jadwal pengingat yang aktif, Pak Laksmana. Ada kegiatan atau tugas yang ingin saya jadwalkan?';
                 } else {
-                    reply = `📋 *Daftar Pengingat Aktif Kamu (${list.length}):*\n\n`;
+                    reply = `📋 *Daftar Agenda & Pengingat Aktif (${list.length}):*\n\n`;
                     list.forEach((item, idx) => {
-                        reply += `${idx + 1}. *${item.text}*\n   🕒 Waktu: ${item.targetTimeString} (ID: ${item.id})\n\n`;
+                        reply += `${idx + 1}. *${item.text}*\n   🕒 ${item.targetTimeString} (ID: ${item.id})\n\n`;
                     });
-                    reply += `_Beri tahu saya jika ada yang ingin dibatalkan atau ditambahkan!_`;
+                    reply += `Beri tahu saya jika ada yang ingin disesuaikan atau dibatalkan ya Pak.`;
                 }
 
-                addToHistory(senderJid, 'user', userText);
-                addToHistory(senderJid, 'model', reply);
+                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
 
@@ -178,30 +173,81 @@ async function handleUserMessageWithAI(userText, senderJid) {
 
                 if (target) {
                     reminder.cancelReminder(target.id, senderJid);
-                    const reply = `✅ Pengingat *"${target.text}"* untuk ${target.targetTimeString} telah berhasil dibatalkan.`;
-                    addToHistory(senderJid, 'user', userText);
-                    addToHistory(senderJid, 'model', reply);
+                    const reply = `Baik Pak Laksmana, pengingat *"${target.text}"* untuk ${target.targetTimeString} telah berhasil saya batalkan.`;
+                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 } else {
-                    const reply = `Maaf, saya tidak menemukan jadwal pengingat yang cocok untuk dibatalkan. Kamu bisa ketik *"cek jadwal"* untuk melihat daftar aktif.`;
-                    addToHistory(senderJid, 'user', userText);
-                    addToHistory(senderJid, 'model', reply);
+                    const reply = `Saya tidak menemukan jadwal pengingat tersebut Pak. Silakan katakan *"cek jadwal"* untuk melihat daftar yang aktif.`;
+                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
             }
         }
 
-        // 2. Jika bukan tool (obrolan santai, tanya informasi, brainstorming)
         const reply = response.text().trim();
-        addToHistory(senderJid, 'user', userText);
-        addToHistory(senderJid, 'model', reply);
+        addHistory(ownerChatHistory, 'user', userText);
+        addHistory(ownerChatHistory, 'model', reply);
         return reply;
     } catch (err) {
-        console.error('[AI Tool Error]:', err.message);
-        return 'Maaf, asisten AI sedang memproses data sejenak. Coba tanyakan lagi ya!';
+        console.error('[NoaH Owner Error]:', err.message);
+        return 'Maaf Pak Laksmana, ada sedikit gangguan koneksi AI. Boleh diulangi sekali lagi?';
+    }
+}
+
+/**
+ * 2. Menangani pesan dari orang lain ke nomor pribadi Laksmana (Auto-Reply & Deteksi Urgent)
+ */
+async function handleGuestMessage(guestText, guestJid, guestName = 'Tamu') {
+    if (!modelGeneral) {
+        return {
+            replyToGuest: `Halo, mohon maaf saat ini Bapak Laksmana sedang belum sempat membuka chat. Saya NoaH, asisten pribadi beliau. Pesan Anda sudah tercatat dan akan segera disampaikan. Terima kasih!`,
+            isUrgent: false,
+            urgentSummary: null
+        };
+    }
+
+    const now = new Date();
+    const nowJakarta = now.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+    const prompt = `
+Kamu adalah NoaH, asisten pribadi cerdas, santun, dan profesional dari Bapak Laksmana.
+Seseorang (${guestName}) mengirim pesan ke nomor WhatsApp pribadi Laksmana:
+"${guestText}"
+
+Waktu saat ini: ${nowJakarta}.
+Laksmana sedang sibuk beraktivitas dan belum sempat membuka chat.
+
+Tugasmu:
+1. Buatkan balasan yang sangat sopan, ramah, dan profesional. Sampaikan bahwa kamu adalah NoaH, asisten pribadi Bapak Laksmana. Beritahu bahwa Laksmana sedang berhalangan/belum membuka ponsel, dan tampung pesan mereka dengan baik.
+2. Analisis dengan teliti apakah isi pesan ini bersifat URGENT / MENDESAK / PENTING (contoh: urusan transfer/uang mendesak, janji temu saat ini juga, keluarga sakit/darurat, kendala server/sistem kritis, atau hal yang harus segera ditanggapi detik ini juga).
+
+Kembalikan HANYA format JSON valid tanpa backticks markdown:
+{
+  "replyToGuest": "kalimat balasan santun untuk pengirim",
+  "isUrgent": boolean,
+  "urgentSummary": "penjelasan singkat alasan darurat jika isUrgent true, atau null jika false"
+}
+`;
+
+    try {
+        const result = await modelGeneral.generateContent(prompt);
+        const text = result.response.text().trim();
+        const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        return parsed;
+    } catch (err) {
+        console.error('[NoaH Guest AI Error]:', err.message);
+        return {
+            replyToGuest: `Halo, mohon maaf saat ini Bapak Laksmana sedang belum sempat membuka WhatsApp. Saya NoaH, asisten pribadi beliau. Pesan Anda sudah saya catat dan akan saya teruskan ke beliau. Terima kasih!`,
+            isUrgent: false,
+            urgentSummary: null
+        };
     }
 }
 
 module.exports = {
-    handleUserMessageWithAI
+    handleOwnerMessage,
+    handleGuestMessage
 };
