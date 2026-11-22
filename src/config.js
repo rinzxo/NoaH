@@ -22,6 +22,8 @@ module.exports = {
     dataPath: path.join(__dirname, '..', 'data', 'reminders.json'),
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    serperApiKey: process.env.SERPER_API_KEY || '',
+    tavilyApiKey: process.env.TAVILY_API_KEY || '',
     twilio: {
         accountSid: process.env.TWILIO_ACCOUNT_SID || '',
         authToken: process.env.TWILIO_AUTH_TOKEN || '',
