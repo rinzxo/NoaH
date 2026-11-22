@@ -197,9 +197,137 @@ Gunakan gaya bahasa santun, profesional, dan padat. Hindari penjelasan bertele-t
     }
 }
 
+async function findGroup(query, sock) {
+    if (!query) return null;
+    const q = query.toLowerCase().trim();
+
+    // 1. Cek dari database yang sudah tersimpan
+    const stored = Object.entries(groupData.groups);
+    for (const [jid, grp] of stored) {
+        const name = (grp.name || '').toLowerCase();
+        if (name === q || name.includes(q) || q.includes(name)) {
+            return { jid, name: grp.name };
+        }
+    }
+
+    // Keyword matching untuk nama panjang (contoh: "RG3C", "SMANDU", "Komisi C", "KitaAtur")
+    const words = q.split(/[\s+(),-]+/).filter(w => w.length >= 3);
+    let bestMatch = null;
+    let highestScore = 0;
+
+    for (const [jid, grp] of stored) {
+        const name = (grp.name || '').toLowerCase();
+        let score = 0;
+        for (const w of words) {
+            if (name.includes(w)) score++;
+        }
+        if (score > highestScore) {
+            highestScore = score;
+            bestMatch = { jid, name: grp.name };
+        }
+    }
+    if (bestMatch && highestScore > 0) {
+        return bestMatch;
+    }
+
+    // 2. Jika tidak ada di lokal, cari langsung dari grup aktif di WhatsApp socket
+    if (sock && typeof sock.groupFetchAllParticipating === 'function') {
+        try {
+            const all = await sock.groupFetchAllParticipating();
+            for (const [jid, meta] of Object.entries(all)) {
+                const name = (meta.subject || '').toLowerCase();
+                if (name === q || name.includes(q) || q.includes(name)) {
+                    if (!groupData.groups[jid]) {
+                        groupData.groups[jid] = { name: meta.subject, lastUpdated: Date.now(), messages: [] };
+                    } else {
+                        groupData.groups[jid].name = meta.subject;
+                    }
+                    scheduleSave();
+                    return { jid, name: meta.subject };
+                }
+            }
+
+            for (const [jid, meta] of Object.entries(all)) {
+                const name = (meta.subject || '').toLowerCase();
+                let score = 0;
+                for (const w of words) {
+                    if (name.includes(w)) score++;
+                }
+                if (score > highestScore) {
+                    highestScore = score;
+                    bestMatch = { jid, name: meta.subject };
+                }
+            }
+            if (bestMatch && highestScore > 0) {
+                if (!groupData.groups[bestMatch.jid]) {
+                    groupData.groups[bestMatch.jid] = { name: bestMatch.name, lastUpdated: Date.now(), messages: [] };
+                }
+                scheduleSave();
+                return bestMatch;
+            }
+        } catch (e) {
+            console.error('[GroupManager] Gagal fetch all participating groups:', e.message);
+        }
+    }
+
+    return null;
+}
+
+async function resolveDestination(tujuan, sock) {
+    if (!tujuan) return null;
+    const cleanDigits = tujuan.replace(/\D/g, '');
+    if (cleanDigits.length >= 9 && cleanDigits.length <= 15) {
+        let phone = cleanDigits;
+        if (phone.startsWith('0')) {
+            phone = '62' + phone.slice(1);
+        }
+        return {
+            jid: `${phone}@s.whatsapp.net`,
+            name: `+${phone}`,
+            isGroup: false
+        };
+    }
+
+    const grp = await findGroup(tujuan, sock);
+    if (grp) {
+        return {
+            jid: grp.jid,
+            name: grp.name,
+            isGroup: true
+        };
+    }
+
+    return null;
+}
+
+async function sendMessageToTarget(tujuan, pesan, sock) {
+    if (!sock) throw new Error('Koneksi WhatsApp belum terhubung.');
+    const target = await resolveDestination(tujuan, sock);
+    if (!target) {
+        throw new Error(`Tujuan "${tujuan}" tidak ditemukan. Pastikan nama grup atau nomor WhatsApp sesuai.`);
+    }
+
+    // Gestur mengetik sebentar sebelum mengirim pesan ke grup/kontak
+    try {
+        await sock.sendPresenceUpdate('composing', target.jid);
+        await new Promise(r => setTimeout(r, 1200));
+    } catch (e) {}
+
+    await sock.sendMessage(target.jid, { text: pesan });
+
+    try {
+        await sock.sendPresenceUpdate('paused', target.jid);
+    } catch (e) {}
+
+    return target;
+}
+
 module.exports = {
     recordMessage,
     getGroupListFormatted,
     summarize,
-    resolveGroupName
+    resolveGroupName,
+    findGroup,
+    resolveDestination,
+    sendMessageToTarget
 };

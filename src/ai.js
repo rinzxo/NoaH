@@ -7,6 +7,11 @@ const groupManager = require('./groupManager');
 let genAI = null;
 let modelWithTools = null;
 let modelGeneral = null;
+let socketGetter = null;
+
+function setSockets(getter) {
+    socketGetter = getter;
+}
 
 const tools = [
     {
@@ -94,6 +99,24 @@ const tools = [
             type: 'OBJECT',
             properties: {}
         }
+    },
+    {
+        name: 'kirim_pesan_wa',
+        description: 'Mengirimkan pesan WhatsApp langsung dan real-time ke grup WhatsApp atau ke kontak/nomor HP tertentu atas nama Pak Laksmana. Panggil tool ini setiap kali Pak Laksmana meminta menyampaikan pesan, membalas, atau mengabarkan sesuatu ke grup atau kontak.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                tujuan: {
+                    type: 'STRING',
+                    description: 'Nama grup WhatsApp tujuan (misal: "RG3C+ Komisi C SMANDU ( KitaAtur )", "Marketing | Rinz Group", "Key Frame") atau nama kontak/nomor HP.'
+                },
+                pesan: {
+                    type: 'STRING',
+                    description: 'Isi teks pesan lengkap yang akan dikirimkan ke tujuan.'
+                }
+            },
+            required: ['tujuan', 'pesan']
+        }
     }
 ];
 
@@ -141,7 +164,13 @@ Bapak Laksmana Ibrahim Rino adalah Founder & CEO dari Rinz Group Inovasi, sebuah
 Website resmi: rinzgroup.web.id.
 
 Waktu Jakarta: ${nowJakarta}.
-Bersikaplah sangat hormat, cerdas, hangat, sigap, dan solutif. Panggil beliau "Pak Laksmana" atau "Mas Laksmana". Gunakan tools yang tersedia jika beliau ingin membuat jadwal, melihat agenda, mencari info web, atau membatalkan pengingat.]`;
+Bersikaplah sangat hormat, cerdas, hangat, sigap, dan solutif. Panggil beliau "Pak Laksmana" atau "Mas Laksmana".
+Kamu MEMILIKI AKSES PENUH untuk mengirim pesan secara langsung dan real-time ke grup WhatsApp mana pun yang diikuti Pak Laksmana atau ke kontak siapa pun atas perintah beliau menggunakan tool \`kirim_pesan_wa\`.
+Gunakan tools yang tersedia jika beliau ingin:
+- Mengirim pesan atau mewakili beliau berbicara di grup/kontak (\`kirim_pesan_wa\`).
+- Merangkum obrolan grup WhatsApp (\`rangkum_grup\` atau \`daftar_grup\`).
+- Membuat jadwal/agenda (\`buat_pengingat\`, \`lihat_daftar_pengingat\`, \`batalkan_pengingat\`).
+- Mencari informasi web (\`cari_informasi_web\`).]`;
 
     const contents = [
         ...ownerChatHistory,
@@ -270,6 +299,33 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
+
+            // Tool: kirim_pesan_wa
+            if (call.name === 'kirim_pesan_wa') {
+                const { tujuan, pesan } = call.args;
+                console.log(`📤 [NoaH Send WA] Mengirim ke "${tujuan}": "${pesan}"`);
+                const ownerSock = socketGetter?.getOwnerSock ? socketGetter.getOwnerSock() : null;
+                if (!ownerSock) {
+                    const reply = 'Maaf Pak Laksmana, sesi WhatsApp Anda (nomor pribadi) sedang tidak terhubung.';
+                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'model', reply);
+                    return reply;
+                }
+
+                try {
+                    const target = await groupManager.sendMessageToTarget(tujuan, pesan, ownerSock);
+                    const reply = `Siap Pak Laksmana! Pesan telah berhasil saya sampaikan ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}*:\n\n"${pesan}"`;
+                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'model', reply);
+                    return reply;
+                } catch (err) {
+                    console.error('[NoaH Send WA Error]:', err.message);
+                    const reply = `Maaf Pak Laksmana, gagal mengirim ke "${tujuan}": ${err.message}`;
+                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'model', reply);
+                    return reply;
+                }
+            }
         }
 
         const reply = response.text().trim();
@@ -340,5 +396,6 @@ function getModelGeneral() {
 module.exports = {
     handleOwnerMessage,
     handleGuestMessage,
-    getModelGeneral
+    getModelGeneral,
+    setSockets
 };

@@ -120,6 +120,23 @@ async function handleGroupCommand(text) {
     return null;
 }
 
+async function handleSendDirectCommand(text) {
+    const match = text.match(/^(?:noah\s+)?(?:kirim|sampaikan|chat)\s+(?:ke\s+)?(?:grup\s+|kontak\s+)?([^:]+?)\s*:\s*([\s\S]+)$/i);
+    if (match) {
+        const targetQuery = match[1].trim();
+        const msgText = match[2].trim();
+        if (targetQuery && msgText && ownerSock) {
+            try {
+                const target = await groupManager.sendMessageToTarget(targetQuery, msgText, ownerSock);
+                return `Siap Pak Laksmana! Pesan telah berhasil saya sampaikan ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}*:\n\n"${msgText}"`;
+            } catch (e) {
+                return `Gagal mengirim ke "${targetQuery}": ${e.message}`;
+            }
+        }
+    }
+    return null;
+}
+
 async function executeDelayedGuestReply(chatKey) {
     const item = pendingGuestReplies.get(chatKey);
     pendingGuestReplies.delete(chatKey);
@@ -326,6 +343,11 @@ async function startBotSocket() {
                 await replyWithTyping(botSock, from, groupReply, typingStart);
                 return;
             }
+            const sendReply = await handleSendDirectCommand(body);
+            if (sendReply) {
+                await replyWithTyping(botSock, from, sendReply, typingStart);
+                return;
+            }
             const reply = await ai.handleOwnerMessage(body, from);
             if (reply) {
                 await replyWithTyping(botSock, from, reply, typingStart);
@@ -462,6 +484,11 @@ async function startOwnerSocket() {
                     await replyWithTyping(ownerSock, from, groupReply, typingStart);
                     return;
                 }
+                const sendReply = await handleSendDirectCommand(body);
+                if (sendReply) {
+                    await replyWithTyping(ownerSock, from, sendReply, typingStart);
+                    return;
+                }
                 const reply = await ai.handleOwnerMessage(body, from);
                 if (reply) {
                     await replyWithTyping(ownerSock, from, reply, typingStart);
@@ -594,6 +621,11 @@ console.log('----------------------------------------------------');
 
 startBotSocket();
 startOwnerSocket();
+
+ai.setSockets({
+    getOwnerSock: () => ownerSock,
+    getBotSock: () => botSock
+});
 
 process.on('SIGINT', () => {
     console.log('\nMematikan sistem NoaH...');
