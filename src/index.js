@@ -27,6 +27,24 @@ let ownerSock = null;
 // Cooldown balas otomatis tamu di nomor owner: 3 menit per nomor
 const guestReplyCooldown = new Map();
 
+function extractMessageText(message) {
+    if (!message) return '';
+    let m = message;
+    if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
+    if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
+    if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
+    if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+
+    return (
+        m.conversation ||
+        m.extendedTextMessage?.text ||
+        m.imageMessage?.caption ||
+        m.videoMessage?.caption ||
+        m.documentMessage?.caption ||
+        ''
+    ).trim();
+}
+
 function resolveSender(remoteJid, sessionDir) {
     if (!remoteJid) return '';
     if (remoteJid.endsWith('@s.whatsapp.net')) {
@@ -45,11 +63,6 @@ function resolveSender(remoteJid, sessionDir) {
         return lidUser;
     }
     return remoteJid.replace(/\D/g, '');
-}
-
-function isLaksmana(remoteJid, sessionDir) {
-    const sender = resolveSender(remoteJid, sessionDir);
-    return sender === config.ownerNumber;
 }
 
 /**
@@ -101,28 +114,22 @@ async function startBotSocket() {
         }
     });
 
-    botSock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
+    botSock.ev.on('messages.upsert', async ({ messages }) => {
+        if (!messages || messages.length === 0) return;
         const msg = messages[0];
         if (!msg || !msg.message || msg.key.fromMe) return;
 
         const from = msg.key.remoteJid;
-        if (from.endsWith('@g.us')) return;
+        if (!from || from.endsWith('@g.us') || from.endsWith('@newsletter') || from.includes('broadcast')) return;
 
         const senderPhone = resolveSender(from, config.botSessionDir);
-        const body = (
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            ''
-        ).trim();
-
+        const body = extractMessageText(msg.message);
         if (!body) return;
 
         console.log(`[Bot Socket] Pesan masuk dari ${senderPhone}: "${body}"`);
 
         // Pesan dari Laksmana ke NoaH
-        if (senderPhone === config.ownerNumber) {
+        if (senderPhone === config.ownerNumber || from.includes(config.ownerNumber)) {
             const reply = await ai.handleOwnerMessage(body, from);
             if (reply) {
                 await botSock.sendMessage(from, { text: reply });
@@ -171,7 +178,6 @@ async function startOwnerSocket() {
 
     ownerSock.ev.on('creds.update', saveCreds);
 
-    // Minta kode pairing jika sesi belum terdaftar
     if (!ownerSock.authState.creds.registered && config.ownerNumber) {
         setTimeout(async () => {
             try {
@@ -202,34 +208,40 @@ async function startOwnerSocket() {
         }
     });
 
-    ownerSock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
+    ownerSock.ev.on('messages.upsert', async ({ messages }) => {
+        if (!messages || messages.length === 0) return;
         const msg = messages[0];
         if (!msg || !msg.message) return;
 
-        // Jangan tangani pesan yang dikirim oleh Laksmana sendiri
-        if (msg.key.fromMe) return;
-
         const from = msg.key.remoteJid;
-        // Hanya chat pribadi, jangan balas grup
-        if (from.endsWith('@g.us') || from.includes('status@broadcast')) return;
+        // Abaikan grup, saluran (newsletter), dan status WhatsApp
+        if (!from || from.endsWith('@g.us') || from.endsWith('@newsletter') || from.includes('broadcast')) return;
+
+        const body = extractMessageText(msg.message);
+        if (!body) return;
 
         const senderPhone = resolveSender(from, config.ownerSessionDir);
+
+        // Kasus A: Laksmana chatting ke diri sendiri (Message Yourself di nomornya sendiri)
+        const isMessageToSelf = from.includes(config.ownerNumber) || senderPhone === config.ownerNumber;
+        if (isMessageToSelf) {
+            // Jika Laksmana mengetik pesan ke diri sendiri, layani sebagai perintah asisten!
+            console.log(`[Owner Socket] Laksmana mengirim catatan ke diri sendiri: "${body}"`);
+            const reply = await ai.handleOwnerMessage(body, from);
+            if (reply) {
+                await ownerSock.sendMessage(from, { text: reply });
+            }
+            return;
+        }
+
+        // Jangan balas pesan yang dikirim oleh Laksmana ke orang lain
+        if (msg.key.fromMe) return;
 
         // Jangan balas jika pesan berasal dari nomor bot itu sendiri
         if (senderPhone === config.botNumber) return;
 
-        const body = (
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            ''
-        ).trim();
-
-        if (!body) return;
-
         const pushName = msg.pushName || senderPhone || 'Seseorang';
-        console.log(`[Owner Socket] Pesan masuk dari Tamu (${pushName} - ${senderPhone}): "${body}"`);
+        console.log(`[Owner Socket] Tamu (${pushName} - ${senderPhone}): "${body}"`);
 
         // Cek cooldown per nomor tamu (3 menit) agar tidak spamming
         const now = Date.now();
@@ -259,10 +271,7 @@ async function startOwnerSocket() {
                 `_Saya telah membalas tamu secara santun bahwa Anda sedang berhalangan. Mohon segera dicek ya Pak!_`;
 
             if (botSock) {
-                // 1. Kirim teks laporan darurat
                 await botSock.sendMessage(ownerTargetJid, { text: urgentAlert });
-
-                // 2. Kirim pesan suara (Voice Note) darurat
                 try {
                     const voiceText = `Pak Laksmana, ada pesan darurat masuk di nomor pribadi Anda dari ${pushName}. ${aiAnalysis.urgentSummary || 'Mohon segera periksa WhatsApp Anda.'}`;
                     const audioBuffer = await generateVoiceNoteBuffer(voiceText);
@@ -305,10 +314,8 @@ function startReminderScheduler() {
                     `🕒 *Waktu:* ${item.targetTimeString}\n\n` +
                     `_Asisten Pribadi NoaH_`;
 
-                // Kirim via nomor bot
                 await botSock.sendMessage(item.targetJid, { text: alertText });
 
-                // Kirim Voice Note
                 if (item.voiceNote) {
                     try {
                         const voiceBuffer = await generateVoiceNoteBuffer(`Halo Pak Laksmana, ini pengingat untuk Anda: ${item.text}`);
@@ -324,7 +331,6 @@ function startReminderScheduler() {
                     }
                 }
 
-                // Panggilan Twilio jika aktif
                 if (item.call) {
                     const cleanPhone = item.targetJid.replace(/@s\.whatsapp\.net|@g\.us/g, '').split(':')[0];
                     triggerPhoneCall(cleanPhone, item.text).catch(err => {
@@ -338,7 +344,6 @@ function startReminderScheduler() {
     }, 10000);
 }
 
-// Inisialisasi kedua sesi
 console.log('----------------------------------------------------');
 console.log(`🤖 Memulai Sistem Dual-Session ${config.botName}`);
 console.log(`👑 Pemilik: ${config.ownerName} (${config.ownerNumber})`);
