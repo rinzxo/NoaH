@@ -1,14 +1,43 @@
 /**
  * Web Search Engine untuk NoaH
- * Menggunakan Wikipedia API + DuckDuckGo HTML fallback + Google News RSS
+ * Dilengkapi Knowledge Base Resmi Laksmana Ibrahim Rino & Rinz Group Inovasi
+ * + Google News RSS & Wikipedia API untuk pencarian umum
  */
+
+const OWNER_KNOWLEDGE = `
+[DATA PROFIL RESMI LAKSMANA IBRAHIM RINO & RINZ GROUP INOVASI]
+- Nama Lengkap: Laksmana Ibrahim Rino (biasa disapa Pak/Mas Laksmana atau Rino)
+- Jabatan/Peran: Founder & Chief Executive Officer (CEO) dari Rinz Group Inovasi
+- Entitas: Rinz Group Inovasi (Inisiatif & Startup Teknologi Digital Indonesia)
+- Ekosistem & Lini Produk:
+  1. KitaPay (kitapay.rinzgroup.web.id): Platform pembayaran digital QRIS instan dan payment gateway untuk UMKM & merchant digital.
+  2. KitaAtur (kitaatur.rinzgroup.web.id): Aplikasi PWA manajemen kas, absensi, dan sistem operasional digital organisasi.
+  3. DesainKita / KitaCom: Jasa desain grafis, branding visual, dan solusi komunikasi digital.
+  4. NoaH Assistant: Asisten pribadi pintar berbasis AI WhatsApp untuk automasi pengingat, penerima tamu, dan manajemen pesan darurat.
+- Website & Domain Utama: rinzgroup.web.id
+`;
 
 async function searchWeb(query) {
     if (!query) return 'Kata kunci pencarian kosong.';
+    const qLower = query.toLowerCase();
 
     const results = [];
 
-    // 1. Google News RSS (untuk berita & info terkini)
+    // 1. Cek Knowledge Base Internal Owner (Laksmana & Rinz Group)
+    if (
+        qLower.includes('laksmana') ||
+        qLower.includes('rino') ||
+        qLower.includes('rinz') ||
+        qLower.includes('kitapay') ||
+        qLower.includes('kitaatur') ||
+        qLower.includes('desainkita') ||
+        qLower.includes('saya') ||
+        qLower.includes('founder')
+    ) {
+        results.push(OWNER_KNOWLEDGE.trim());
+    }
+
+    // 2. Google News RSS (untuk berita & kejadian terkini)
     try {
         const newsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=id&gl=ID&ceid=ID:id`;
         const res = await fetch(newsUrl, {
@@ -23,13 +52,13 @@ async function searchWeb(query) {
             const title = match[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim();
             const date = match[3] ? match[3].trim() : '';
             if (title) {
-                results.push(`- [Berita/Info] ${title} (${date})`);
+                results.push(`- [Berita] ${title} (${date})`);
                 count++;
             }
         }
     } catch (e) {}
 
-    // 2. Wikipedia Indonesia API (untuk pengetahuan umum, definisi, tokoh, fakta)
+    // 3. Wikipedia Indonesia API (untuk pengetahuan umum, sains, definisi, tokoh nasional)
     try {
         const wikiUrl = `https://id.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=3`;
         const res = await fetch(wikiUrl, {
@@ -37,7 +66,7 @@ async function searchWeb(query) {
             signal: AbortSignal.timeout(5000)
         });
         const data = await res.json();
-        if (data.query && data.query.search) {
+        if (data.query && data.query.search && data.query.search.length > 0) {
             for (const item of data.query.search) {
                 const snippet = item.snippet.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').trim();
                 results.push(`- [Ensiklopedia] ${item.title}: ${snippet}`);
@@ -45,23 +74,14 @@ async function searchWeb(query) {
         }
     } catch (e) {}
 
-    // 3. DuckDuckGo Instant Answer API
-    try {
-        const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-        const res = await fetch(ddgUrl, { signal: AbortSignal.timeout(4000) });
-        const ddgData = await res.json();
-        if (ddgData.AbstractText) {
-            results.push(`- [Ringkasan]: ${ddgData.AbstractText}`);
-        }
-    } catch (e) {}
-
     if (results.length === 0) {
-        return `Tidak ditemukan informasi langsung dari pencarian web untuk "${query}".`;
+        return `Hasil pencarian web untuk "${query}": Data publik spesifik belum terindeks di portal berita atau ensiklopedia saat ini.`;
     }
 
     return results.join('\n\n');
 }
 
 module.exports = {
-    searchWeb
+    searchWeb,
+    OWNER_KNOWLEDGE
 };
