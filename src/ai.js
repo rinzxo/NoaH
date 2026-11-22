@@ -147,7 +147,7 @@ function addHistory(historyArr, role, text) {
 /**
  * 1. Menangani pesan langsung dari Laksmana (Owner) ke NoaH
  */
-async function handleOwnerMessage(userText, senderJid) {
+async function handleOwnerMessage(userText, senderJid, media = null) {
     if (!modelWithTools) {
         return 'Maaf Pak Laksmana, API Gemini belum terhubung di sistem.';
     }
@@ -165,17 +165,30 @@ Website resmi: rinzgroup.web.id.
 
 Waktu Jakarta: ${nowJakarta}.
 Bersikaplah sangat hormat, cerdas, hangat, sigap, dan solutif. Panggil beliau "Pak Laksmana" atau "Mas Laksmana".
-Kamu MEMILIKI AKSES PENUH untuk mengirim pesan secara langsung dan real-time ke grup WhatsApp mana pun yang diikuti Pak Laksmana atau ke kontak siapa pun atas perintah beliau menggunakan tool \`kirim_pesan_wa\`.
-Gunakan tools yang tersedia jika beliau ingin:
-- Mengirim pesan atau mewakili beliau berbicara di grup/kontak (\`kirim_pesan_wa\`).
-- Merangkum obrolan grup WhatsApp (\`rangkum_grup\` atau \`daftar_grup\`).
-- Membuat jadwal/agenda (\`buat_pengingat\`, \`lihat_daftar_pengingat\`, \`batalkan_pengingat\`).
-- Mencari informasi web (\`cari_informasi_web\`).]`;
+Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
+1. Melihat, membaca, dan menganalisis gambar/foto/screenshot/dokumen (OCR) secara langsung dan visual. Jika Pak Laksmana mengirimkan foto jadwal pelajaran, agenda, catatan tugas, formulir, atau dokumen apa pun, baca seluruh teks dan detailnya dengan teliti, rangkumkan untuk beliau, dan buatkan jadwal pengingat jika diminta.
+2. Mengirim pesan secara langsung dan real-time ke grup WhatsApp mana pun yang diikuti Pak Laksmana atau ke kontak siapa pun atas perintah beliau menggunakan tool \`kirim_pesan_wa\`.
+3. Merangkum obrolan grup WhatsApp (\`rangkum_grup\` atau \`daftar_grup\`).
+4. Membuat jadwal/agenda (\`buat_pengingat\`, \`lihat_daftar_pengingat\`, \`batalkan_pengingat\`).
+5. Mencari informasi web (\`cari_informasi_web\`).]`;
+
+    const userParts = [];
+    if (media && media.buffer) {
+        userParts.push({
+            inlineData: {
+                data: media.buffer.toString('base64'),
+                mimeType: media.mimeType || 'image/jpeg'
+            }
+        });
+    }
+    userParts.push({ text: `${systemContext}\nLaksmana: ${userText}` });
 
     const contents = [
         ...ownerChatHistory,
-        { role: 'user', parts: [{ text: `${systemContext}\nLaksmana: ${userText}` }] }
+        { role: 'user', parts: userParts }
     ];
+
+    const historyUserText = media ? `[Mengirim Foto] ${userText}` : userText;
 
     try {
         const result = await modelWithTools.generateContent({ contents });
@@ -210,7 +223,7 @@ Gunakan tools yang tersedia jika beliau ingin:
                     `🔔 *Notifikasi:* Teks WA + Voice Note ${item.call ? '+ Telepon Langsung' : ''}\n\n` +
                     `Tenang saja, saya akan ingatkan tepat pada waktunya.`;
 
-                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
@@ -229,7 +242,7 @@ Gunakan tools yang tersedia jika beliau ingin:
                     reply += `Beri tahu saya jika ada yang ingin disesuaikan atau dibatalkan ya Pak.`;
                 }
 
-                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
@@ -250,12 +263,12 @@ Gunakan tools yang tersedia jika beliau ingin:
                 if (target) {
                     reminder.cancelReminder(target.id, senderJid);
                     const reply = `Baik Pak Laksmana, pengingat *"${target.text}"* untuk ${target.targetTimeString} telah berhasil saya batalkan.`;
-                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 } else {
                     const reply = `Saya tidak menemukan jadwal pengingat tersebut Pak. Silakan katakan *"cek jadwal"* untuk melihat daftar yang aktif.`;
-                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
@@ -277,7 +290,7 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 const summaryResult = await modelGeneral.generateContent(searchPrompt);
                 const reply = summaryResult.response.text().trim();
 
-                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
@@ -287,7 +300,7 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 const { nama_grup } = call.args || {};
                 console.log(`📑 [NoaH Group] Merangkum grup: "${nama_grup || 'Semua Grup'}"`);
                 const reply = await groupManager.summarize(nama_grup, modelGeneral);
-                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
@@ -295,7 +308,7 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
             // Tool: daftar_grup
             if (call.name === 'daftar_grup') {
                 const reply = groupManager.getGroupListFormatted();
-                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
@@ -307,7 +320,7 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 const ownerSock = socketGetter?.getOwnerSock ? socketGetter.getOwnerSock() : null;
                 if (!ownerSock) {
                     const reply = 'Maaf Pak Laksmana, sesi WhatsApp Anda (nomor pribadi) sedang tidak terhubung.';
-                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
@@ -315,13 +328,13 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 try {
                     const target = await groupManager.sendMessageToTarget(tujuan, pesan, ownerSock);
                     const reply = `Siap Pak Laksmana! Pesan telah berhasil saya sampaikan ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}*:\n\n"${pesan}"`;
-                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 } catch (err) {
                     console.error('[NoaH Send WA Error]:', err.message);
                     const reply = `Maaf Pak Laksmana, gagal mengirim ke "${tujuan}": ${err.message}`;
-                    addHistory(ownerChatHistory, 'user', userText);
+                    addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
@@ -329,7 +342,7 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
         }
 
         const reply = response.text().trim();
-        addHistory(ownerChatHistory, 'user', userText);
+        addHistory(ownerChatHistory, 'user', historyUserText);
         addHistory(ownerChatHistory, 'model', reply);
         return reply;
     } catch (err) {

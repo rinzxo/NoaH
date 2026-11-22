@@ -9,7 +9,8 @@ const {
     DisconnectReason,
     fetchLatestWaWebVersion,
     makeCacheableSignalKeyStore,
-    Browsers
+    Browsers,
+    downloadMediaMessage
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
@@ -242,6 +243,33 @@ function extractMessageText(message) {
     ).trim();
 }
 
+function getMediaInfo(message) {
+    if (!message) return null;
+    let m = message;
+    if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
+    if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
+    if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
+
+    if (m.imageMessage) {
+        return {
+            type: 'image',
+            mimeType: m.imageMessage.mimetype || 'image/jpeg',
+            caption: m.imageMessage.caption || ''
+        };
+    }
+    if (m.documentMessage) {
+        const mime = m.documentMessage.mimetype || '';
+        if (mime.startsWith('image/') || mime === 'application/pdf') {
+            return {
+                type: 'document',
+                mimeType: mime,
+                caption: m.documentMessage.caption || ''
+            };
+        }
+    }
+    return null;
+}
+
 function resolveSender(remoteJid, sessionDir) {
     if (!remoteJid) return '';
     if (remoteJid.endsWith('@s.whatsapp.net')) {
@@ -320,10 +348,34 @@ async function startBotSocket() {
         if (!from || from.endsWith('@g.us') || from.endsWith('@newsletter') || from.includes('broadcast')) return;
 
         const senderPhone = resolveSender(from, config.botSessionDir);
-        const body = extractMessageText(msg.message);
-        if (!body) return;
+        let body = extractMessageText(msg.message);
+        const mediaInfo = getMediaInfo(msg.message);
 
-        console.log(`[Bot Socket] Pesan masuk dari ${senderPhone}: "${body}"`);
+        let media = null;
+        if (mediaInfo) {
+            try {
+                const buffer = await downloadMediaMessage(
+                    msg,
+                    'buffer',
+                    {},
+                    { logger, reuploadRequest: (update) => botSock.updateMediaMessage(update) }
+                );
+                if (buffer) {
+                    media = { buffer, mimeType: mediaInfo.mimeType };
+                    console.log(`[Bot Socket] Berhasil mengunduh media (${mediaInfo.mimeType}, ${buffer.length} bytes) dari ${senderPhone}`);
+                }
+            } catch (err) {
+                console.error('[Bot Media Download Error]:', err.message);
+            }
+        }
+
+        if (media && !body) {
+            body = 'Tolong lihat, baca, dan analisis isi gambar ini untuk saya.';
+        }
+
+        if (!body && !media) return;
+
+        console.log(`[Bot Socket] Pesan masuk dari ${senderPhone}: "${body}" ${media ? '(dengan media)' : ''}`);
 
         // Tampilkan indikator mengetik (composing) SEGERA saat pesan diterima!
         const typingStart = Date.now();
@@ -348,7 +400,7 @@ async function startBotSocket() {
                 await replyWithTyping(botSock, from, sendReply, typingStart);
                 return;
             }
-            const reply = await ai.handleOwnerMessage(body, from);
+            const reply = await ai.handleOwnerMessage(body, from, media);
             if (reply) {
                 await replyWithTyping(botSock, from, reply, typingStart);
             }
@@ -467,31 +519,56 @@ async function startOwnerSocket() {
 
             // Cek apakah ini pesan ke diri sendiri ("Message Yourself")
             const isSelfChat = from.includes(config.ownerNumber) || chatKey === config.ownerNumber;
-            if (isSelfChat && body) {
-                console.log(`[Owner Socket] Laksmana mengirim pesan ke diri sendiri: "${body}"`);
-                const typingStart = Date.now();
-                try {
-                    await ownerSock.sendPresenceUpdate('composing', from);
-                } catch (e) {}
+            if (isSelfChat) {
+                const mediaInfo = getMediaInfo(msg.message);
+                let media = null;
+                if (mediaInfo) {
+                    try {
+                        const buffer = await downloadMediaMessage(
+                            msg,
+                            'buffer',
+                            {},
+                            { logger, reuploadRequest: (update) => ownerSock.updateMediaMessage(update) }
+                        );
+                        if (buffer) {
+                            media = { buffer, mimeType: mediaInfo.mimeType };
+                            console.log(`[Owner Socket] Berhasil mengunduh media (${mediaInfo.mimeType}, ${buffer.length} bytes) dari self-chat`);
+                        }
+                    } catch (err) {
+                        console.error('[Owner Media Download Error]:', err.message);
+                    }
+                }
 
-                const settingReply = handleSettingsCommand(body);
-                if (settingReply) {
-                    await replyWithTyping(ownerSock, from, settingReply, typingStart);
-                    return;
+                if (media && !body) {
+                    body = 'Tolong lihat, baca, dan analisis isi gambar ini untuk saya.';
                 }
-                const groupReply = await handleGroupCommand(body);
-                if (groupReply) {
-                    await replyWithTyping(ownerSock, from, groupReply, typingStart);
-                    return;
-                }
-                const sendReply = await handleSendDirectCommand(body);
-                if (sendReply) {
-                    await replyWithTyping(ownerSock, from, sendReply, typingStart);
-                    return;
-                }
-                const reply = await ai.handleOwnerMessage(body, from);
-                if (reply) {
-                    await replyWithTyping(ownerSock, from, reply, typingStart);
+
+                if (body || media) {
+                    console.log(`[Owner Socket] Laksmana mengirim pesan ke diri sendiri: "${body}" ${media ? '(dengan media)' : ''}`);
+                    const typingStart = Date.now();
+                    try {
+                        await ownerSock.sendPresenceUpdate('composing', from);
+                    } catch (e) {}
+
+                    const settingReply = handleSettingsCommand(body);
+                    if (settingReply) {
+                        await replyWithTyping(ownerSock, from, settingReply, typingStart);
+                        return;
+                    }
+                    const groupReply = await handleGroupCommand(body);
+                    if (groupReply) {
+                        await replyWithTyping(ownerSock, from, groupReply, typingStart);
+                        return;
+                    }
+                    const sendReply = await handleSendDirectCommand(body);
+                    if (sendReply) {
+                        await replyWithTyping(ownerSock, from, sendReply, typingStart);
+                        return;
+                    }
+                    const reply = await ai.handleOwnerMessage(body, from, media);
+                    if (reply) {
+                        await replyWithTyping(ownerSock, from, reply, typingStart);
+                    }
                 }
             }
             return;
