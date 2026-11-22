@@ -8,6 +8,7 @@ const {
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestWaWebVersion,
+    makeCacheableSignalKeyStore,
     Browsers
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
@@ -46,8 +47,11 @@ async function startBot() {
         version,
         logger,
         printQRInTerminal: false,
-        browser: Browsers.windows('Desktop'),
-        auth: state,
+        browser: Browsers.ubuntu('Chrome'),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, logger)
+        },
         syncFullHistory: false,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
