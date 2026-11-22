@@ -13,6 +13,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
+const fs = require('fs');
 const qrcodeTerminal = require('qrcode-terminal');
 const config = require('./config');
 const reminder = require('./reminder');
@@ -22,17 +23,37 @@ const ai = require('./ai');
 const logger = pino({ level: 'silent' });
 let sock = null;
 
+function resolveSender(remoteJid) {
+    if (!remoteJid) return '';
+    if (remoteJid.endsWith('@s.whatsapp.net')) {
+        return remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+    }
+    if (remoteJid.endsWith('@lid')) {
+        const lidUser = remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+        try {
+            const reverseFile = path.join(config.sessionDir, `lid-mapping-${lidUser}_reverse.json`);
+            if (fs.existsSync(reverseFile)) {
+                const content = JSON.parse(fs.readFileSync(reverseFile, 'utf8'));
+                const resolved = String(content).replace(/\D/g, '');
+                if (resolved) return resolved;
+            }
+        } catch (e) {}
+        return lidUser;
+    }
+    return remoteJid.replace(/\D/g, '');
+}
+
 function isOwner(remoteJid) {
-    if (!config.ownerNumber) return true; // Jika belum diset di .env, izinkan untuk testing
-    const sender = remoteJid.replace(/@s\.whatsapp\.net|@g\.us/g, '').split(':')[0];
-    return sender === config.ownerNumber;
+    if (!config.ownerNumbers || config.ownerNumbers.length === 0) return true;
+    const phone = resolveSender(remoteJid);
+    return config.ownerNumbers.includes(phone);
 }
 
 async function startBot() {
     console.log('----------------------------------------------------');
     console.log(`🤖 Memulai ${config.botName}...`);
     console.log(`📱 Mode Autentikasi: ${config.authMode.toUpperCase()}`);
-    if (config.ownerNumber) console.log(`👑 Owner Number: ${config.ownerNumber}`);
+    if (config.ownerNumbers?.length) console.log(`👑 Owner Number: ${config.ownerNumbers.join(', ')}`);
     console.log('----------------------------------------------------');
 
     const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir);
@@ -106,8 +127,9 @@ async function startBot() {
         const isGroup = from.endsWith('@g.us');
         if (isGroup) return; // Asisten privat hanya bekerja di direct chat
 
+        const resolvedSender = resolveSender(from);
         if (!isOwner(from)) {
-            console.log(`[Security] Mengabaikan pesan dari bukan owner: ${from}`);
+            console.log(`[Security] Mengabaikan pesan dari bukan owner: ${from} (resolved: ${resolvedSender})`);
             return;
         }
 
@@ -120,7 +142,7 @@ async function startBot() {
 
         if (!body) return;
 
-        console.log(`[Pesan Masuk] ${body}`);
+        console.log(`[Pesan Masuk dari ${resolvedSender}] ${body}`);
         await handleMessage(from, body);
     });
 }
