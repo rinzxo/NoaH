@@ -2,6 +2,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const config = require('./config');
 const reminder = require('./reminder');
 const { searchWeb } = require('./search');
+const groupManager = require('./groupManager');
 
 let genAI = null;
 let modelWithTools = null;
@@ -71,6 +72,27 @@ const tools = [
                 }
             },
             required: ['query']
+        }
+    },
+    {
+        name: 'rangkum_grup',
+        description: 'Meringkas dan merangkum pesan-pesan penting dari grup WhatsApp yang diikuti Bapak Laksmana tanpa mengganggu alur grup.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                nama_grup: {
+                    type: 'STRING',
+                    description: 'Nama grup spesifik (misal: "OSIS", "Office", "Rinz Group", "DesainKita") atau biarkan kosong untuk merangkum seluruh grup aktif.'
+                }
+            }
+        }
+    },
+    {
+        name: 'daftar_grup',
+        description: 'Melihat daftar nama grup WhatsApp yang sedang dipantau oleh NoaH beserta jumlah pesan terekam.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {}
         }
     }
 ];
@@ -230,6 +252,24 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 addHistory(ownerChatHistory, 'model', reply);
                 return reply;
             }
+
+            // Tool: rangkum_grup
+            if (call.name === 'rangkum_grup') {
+                const { nama_grup } = call.args || {};
+                console.log(`📑 [NoaH Group] Merangkum grup: "${nama_grup || 'Semua Grup'}"`);
+                const reply = await groupManager.summarize(nama_grup, modelGeneral);
+                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'model', reply);
+                return reply;
+            }
+
+            // Tool: daftar_grup
+            if (call.name === 'daftar_grup') {
+                const reply = groupManager.getGroupListFormatted();
+                addHistory(ownerChatHistory, 'user', userText);
+                addHistory(ownerChatHistory, 'model', reply);
+                return reply;
+            }
         }
 
         const reply = response.text().trim();
@@ -293,7 +333,12 @@ Kembalikan HANYA format JSON valid tanpa backticks markdown:
     }
 }
 
+function getModelGeneral() {
+    return modelGeneral;
+}
+
 module.exports = {
     handleOwnerMessage,
-    handleGuestMessage
+    handleGuestMessage,
+    getModelGeneral
 };

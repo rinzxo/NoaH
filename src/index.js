@@ -18,6 +18,7 @@ const config = require('./config');
 const reminder = require('./reminder');
 const { generateVoiceNoteBuffer, triggerPhoneCall } = require('./call');
 const ai = require('./ai');
+const groupManager = require('./groupManager');
 
 const logger = pino({ level: 'silent' });
 
@@ -79,6 +80,19 @@ function handleSettingsCommand(text) {
     return null;
 }
 
+async function handleGroupCommand(text) {
+    const clean = text.toLowerCase().trim();
+    if (clean === 'daftar grup' || clean === 'list grup' || clean === 'cek grup') {
+        return groupManager.getGroupListFormatted();
+    }
+    const match = clean.match(/^(?:noah\s+)?(?:rangkum|ringkas|rekap)\s+(?:semua\s+)?grup(?:\s+(.+))?$/i);
+    if (match) {
+        const targetGroup = match[1] ? match[1].trim() : '';
+        return await groupManager.summarize(targetGroup, ai.getModelGeneral());
+    }
+    return null;
+}
+
 async function executeDelayedGuestReply(chatKey) {
     const item = pendingGuestReplies.get(chatKey);
     pendingGuestReplies.delete(chatKey);
@@ -106,6 +120,20 @@ async function executeDelayedGuestReply(chatKey) {
             await ownerSock.sendMessage(item.from, { text: aiAnalysis.replyToGuest });
             guestCooldown.set(chatKey, Date.now());
             console.log(`✅ [Auto-Reply] NoaH berhasil membalas pesan tertunda dari ${item.pushName} (${chatKey}).`);
+
+            // LAPORKAN KE LAKSMANA VIA NOMOR BOT
+            if (botSock) {
+                const ownerTargetJid = `${config.ownerNumber}@s.whatsapp.net`;
+                const reportToOwner = `📢 *LAPORAN BALASAN OTOMATIS NoaH*\n\n` +
+                    `Pak Laksmana, saya baru saja membalas pesan tamu di nomor pribadi Anda karena belum sempat Anda balas (${appSettings.delayMinutes || 3} menit):\n\n` +
+                    `👤 *Pengirim:* ${item.pushName} (+${chatKey})\n` +
+                    `💬 *Pesan Masuk:*\n"${fullText}"\n\n` +
+                    `🤖 *Balasan NoaH:*\n"${aiAnalysis.replyToGuest}"\n\n` +
+                    `_Laporan ini dikirim otomatis via bot agar Anda selalu terinformasi._`;
+
+                await botSock.sendMessage(ownerTargetJid, { text: reportToOwner });
+                console.log(`[Auto-Reply] Laporan balasan otomatis telah dikirim ke nomor Laksmana via Bot.`);
+            }
         }
     } catch (err) {
         console.error('[Delayed Reply Error]:', err.message);
@@ -260,6 +288,11 @@ async function startBotSocket() {
                 await botSock.sendMessage(from, { text: settingReply });
                 return;
             }
+            const groupReply = await handleGroupCommand(body);
+            if (groupReply) {
+                await botSock.sendMessage(from, { text: groupReply });
+                return;
+            }
             const reply = await ai.handleOwnerMessage(body, from);
             if (reply) {
                 await botSock.sendMessage(from, { text: reply });
@@ -344,10 +377,26 @@ async function startOwnerSocket() {
         if (!msg || !msg.message) return;
 
         const from = msg.key.remoteJid;
-        // Abaikan grup, saluran (newsletter), dan status WhatsApp
-        if (!from || from.endsWith('@g.us') || from.endsWith('@newsletter') || from.includes('broadcast')) return;
+        // Abaikan saluran (newsletter) dan status broadcast
+        if (!from || from.endsWith('@newsletter') || from.includes('broadcast')) return;
 
         const body = extractMessageText(msg.message);
+
+        // KASUS KHUSUS: Pesan dari Grup WhatsApp (@g.us)
+        // Rekam obrolan secara pasif (NoaH DILARANG KERAS bersuara/mengirim pesan ke grup)
+        if (from.endsWith('@g.us')) {
+            if (body) {
+                const participant = msg.key.participant || msg.participant || '';
+                const senderPhone = resolveSender(participant, config.ownerSessionDir);
+                const pushName = msg.pushName || (msg.key.fromMe ? 'Laksmana' : senderPhone) || 'Member';
+                groupManager.recordMessage(from, senderPhone, pushName, body, ownerSock);
+            }
+            if (msg.key.fromMe) {
+                lastOwnerGlobalActivity = Date.now();
+            }
+            return;
+        }
+
         const chatKey = resolveSender(from, config.ownerSessionDir) || from.replace(/@.+/, '');
 
         // KASUS A: Pesan dikirim oleh Laksmana sendiri (fromMe: true)
@@ -369,6 +418,11 @@ async function startOwnerSocket() {
                 const settingReply = handleSettingsCommand(body);
                 if (settingReply) {
                     await ownerSock.sendMessage(from, { text: settingReply });
+                    return;
+                }
+                const groupReply = await handleGroupCommand(body);
+                if (groupReply) {
+                    await ownerSock.sendMessage(from, { text: groupReply });
                     return;
                 }
                 const reply = await ai.handleOwnerMessage(body, from);
