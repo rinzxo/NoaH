@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'private-asisten',
+      name: 'noah-asisten',
       script: 'src/index.js',
       instances: 1,
       autorestart: true,

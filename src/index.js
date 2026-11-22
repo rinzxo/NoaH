@@ -56,26 +56,26 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    if (config.authMode === 'pairing' && !sock.authState.creds.registered && config.pairingNumber) {
+        setTimeout(async () => {
+            try {
+                console.log(`[Baileys] Meminta Pairing Code untuk nomor: ${config.pairingNumber}`);
+                const code = await sock.requestPairingCode(config.pairingNumber);
+                const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                console.log(`\n🔑 KODE PAIRING WHATSAPP: [ ${formattedCode} ]`);
+                console.log(`Buka WhatsApp di HP > Perangkat Tertaut > Tautkan dengan nomor telepon saja\n`);
+            } catch (err) {
+                console.error('[Baileys] Gagal meminta kode pairing:', err.message);
+            }
+        }, 3500);
+    }
+
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr && config.authMode === 'qr') {
             console.log('\n📱 Silakan Scan QR Code berikut dengan WhatsApp Anda:');
             qrcodeTerminal.generate(qr, { small: true });
-        }
-
-        if (update.qr && config.authMode === 'pairing') {
-            if (!sock.authState.creds.registered && config.pairingNumber) {
-                setTimeout(async () => {
-                    try {
-                        const code = await sock.requestPairingCode(config.pairingNumber);
-                        console.log(`\n🔑 KODE PAIRING ANDA: [ ${code} ]`);
-                        console.log(`Buka WhatsApp di HP > Perangkat Tertaut > Tautkan dengan Kode Telepon, masukkan kode di atas.\n`);
-                    } catch (err) {
-                        console.error('[Pairing] Gagal meminta kode pairing:', err.message);
-                    }
-                }, 4000);
-            }
         }
 
         if (connection === 'close') {
