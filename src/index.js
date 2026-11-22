@@ -52,6 +52,33 @@ const lastChatActivity = new Map(); // chatKey -> timestamp
 const pendingGuestReplies = new Map(); // chatKey -> { timeout, messages: [], pushName, senderPhone, from }
 const guestCooldown = new Map(); // chatKey -> timestamp
 
+/**
+ * Mengirim pesan dengan gestur mengetik ("composing" presence) agar terlihat alami
+ */
+async function replyWithTyping(sock, jid, text, startTime = 0) {
+    if (!sock || !jid || !text) return;
+    try {
+        await sock.sendPresenceUpdate('composing', jid);
+    } catch (e) {}
+
+    const start = startTime || Date.now();
+    const elapsed = Date.now() - start;
+    // Gestur mengetik proporsional: minimal 1.5 detik, maksimal 3.5 detik
+    const targetDelay = Math.min(Math.max(1500, Math.floor(text.length * 12)), 3500);
+
+    if (elapsed < targetDelay) {
+        await new Promise(resolve => setTimeout(resolve, targetDelay - elapsed));
+    }
+
+    const res = await sock.sendMessage(jid, { text });
+
+    try {
+        await sock.sendPresenceUpdate('paused', jid);
+    } catch (e) {}
+
+    return res;
+}
+
 function handleSettingsCommand(text) {
     const clean = text.toLowerCase().trim();
     if (/(matikan|nonaktifkan|stop|off)\s+auto\s*reply/i.test(clean)) {
@@ -117,7 +144,7 @@ async function executeDelayedGuestReply(chatKey) {
     try {
         const aiAnalysis = await ai.handleGuestMessage(fullText, item.from, item.pushName);
         if (aiAnalysis && aiAnalysis.replyToGuest) {
-            await ownerSock.sendMessage(item.from, { text: aiAnalysis.replyToGuest });
+            await replyWithTyping(ownerSock, item.from, aiAnalysis.replyToGuest);
             guestCooldown.set(chatKey, Date.now());
             console.log(`✅ [Auto-Reply] NoaH berhasil membalas pesan tertunda dari ${item.pushName} (${chatKey}).`);
 
@@ -281,27 +308,32 @@ async function startBotSocket() {
 
         console.log(`[Bot Socket] Pesan masuk dari ${senderPhone}: "${body}"`);
 
+        // Tampilkan indikator mengetik (composing) SEGERA saat pesan diterima!
+        const typingStart = Date.now();
+        try {
+            await botSock.sendPresenceUpdate('composing', from);
+        } catch (e) {}
+
         // Pesan dari Laksmana ke NoaH
         if (senderPhone === config.ownerNumber || from.includes(config.ownerNumber)) {
             const settingReply = handleSettingsCommand(body);
             if (settingReply) {
-                await botSock.sendMessage(from, { text: settingReply });
+                await replyWithTyping(botSock, from, settingReply, typingStart);
                 return;
             }
             const groupReply = await handleGroupCommand(body);
             if (groupReply) {
-                await botSock.sendMessage(from, { text: groupReply });
+                await replyWithTyping(botSock, from, groupReply, typingStart);
                 return;
             }
             const reply = await ai.handleOwnerMessage(body, from);
             if (reply) {
-                await botSock.sendMessage(from, { text: reply });
+                await replyWithTyping(botSock, from, reply, typingStart);
             }
         } else {
             // Pesan dari orang lain ke nomor bot
-            await botSock.sendMessage(from, {
-                text: `Halo! Saya *NoaH*, asisten pribadi dari Bapak Laksmana. Ini adalah saluran bot operasional asisten. Jika ada keperluan penting, silakan hubungi nomor pribadi beliau langsung.`
-            });
+            const guestReply = `Halo! Saya *NoaH*, asisten pribadi dari Bapak Laksmana. Ini adalah saluran bot operasional asisten. Jika ada keperluan penting, silakan hubungi nomor pribadi beliau langsung.`;
+            await replyWithTyping(botSock, from, guestReply, typingStart);
         }
     });
 }
@@ -415,19 +447,24 @@ async function startOwnerSocket() {
             const isSelfChat = from.includes(config.ownerNumber) || chatKey === config.ownerNumber;
             if (isSelfChat && body) {
                 console.log(`[Owner Socket] Laksmana mengirim pesan ke diri sendiri: "${body}"`);
+                const typingStart = Date.now();
+                try {
+                    await ownerSock.sendPresenceUpdate('composing', from);
+                } catch (e) {}
+
                 const settingReply = handleSettingsCommand(body);
                 if (settingReply) {
-                    await ownerSock.sendMessage(from, { text: settingReply });
+                    await replyWithTyping(ownerSock, from, settingReply, typingStart);
                     return;
                 }
                 const groupReply = await handleGroupCommand(body);
                 if (groupReply) {
-                    await ownerSock.sendMessage(from, { text: groupReply });
+                    await replyWithTyping(ownerSock, from, groupReply, typingStart);
                     return;
                 }
                 const reply = await ai.handleOwnerMessage(body, from);
                 if (reply) {
-                    await ownerSock.sendMessage(from, { text: reply });
+                    await replyWithTyping(ownerSock, from, reply, typingStart);
                 }
             }
             return;
