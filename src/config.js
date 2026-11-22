@@ -22,7 +22,7 @@ module.exports = {
     authMode: (process.env.AUTH_MODE || 'qr').toLowerCase(),
     pairingNumber: sanitizeNumbers(process.env.PAIRING_NUMBER || process.env.OWNER_NUMBER || '')[0] || '',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
-    geminiModel: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     twilio: {
         accountSid: process.env.TWILIO_ACCOUNT_SID || '',
         authToken: process.env.TWILIO_AUTH_TOKEN || '',

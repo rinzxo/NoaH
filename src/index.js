@@ -244,34 +244,39 @@ async function handleMessage(from, text) {
         return;
     }
 
-    // 5. Natural Language processing via Gemini AI
+    // 5. Natural Conversational AI Assistant (Tanpa perlu command)
     try {
-        const aiParsed = await ai.parseNaturalLanguageReminder(text);
-        if (aiParsed && aiParsed.isReminder && aiParsed.targetTimeISO) {
-            const targetDate = new Date(aiParsed.targetTimeISO);
-            if (!isNaN(targetDate.getTime()) && targetDate.getTime() > Date.now()) {
-                const item = reminder.addReminder(aiParsed.reminderText || text, targetDate, from, {
-                    voiceNote: true,
-                    call: Boolean(aiParsed.callPhone)
-                });
+        const activeReminders = reminder.listReminders(from);
+        const aiResult = await ai.processAssistantMessage(text, activeReminders);
 
-                await sock.sendMessage(from, {
-                    text: `✅ *Siap! Pengingat Dicatat*\n\n` +
-                        `🆔 ID: *${item.id}*\n` +
-                        `📝 Pengingat: ${item.text}\n` +
-                        `⏰ Waktu: ${item.targetTimeString}\n` +
-                        `🔔 Notifikasi: Teks WA + Voice Note ${item.call ? '+ Telepon' : ''}`
-                });
+        if (aiResult) {
+            // Aksi: Buat Pengingat
+            if (aiResult.action === 'CREATE_REMINDER' && aiResult.reminder?.targetTimeISO) {
+                const targetDate = new Date(aiResult.reminder.targetTimeISO);
+                if (!isNaN(targetDate.getTime()) && targetDate.getTime() > Date.now()) {
+                    reminder.addReminder(aiResult.reminder.text || text, targetDate, from, {
+                        voiceNote: true,
+                        call: Boolean(aiResult.reminder.call)
+                    });
+                }
+            }
+            // Aksi: Batalkan Pengingat
+            else if (aiResult.action === 'CANCEL_REMINDER' && aiResult.cancelId) {
+                reminder.cancelReminder(aiResult.cancelId, from);
+            }
+
+            // Balas dengan respon personal dan natural dari AI
+            if (aiResult.reply) {
+                await sock.sendMessage(from, { text: aiResult.reply });
                 return;
             }
         }
 
-        // Jika bukan pengingat, balas percakapan santai via AI
-        const reply = await ai.chatAssistant(text);
-        await sock.sendMessage(from, { text: reply });
+        // Fallback jika respon AI kosong
+        await sock.sendMessage(from, { text: 'Ada yang bisa saya bantu? Kamu bisa meminta saya mengingatkan sesuatu atau bertanya apa saja.' });
     } catch (err) {
-        console.error('[Handler] Error:', err.message);
-        await sock.sendMessage(from, { text: 'Perintah tidak dikenali. Ketik *!menu* untuk melihat panduan.' });
+        console.error('[Handler AI Error]:', err.message);
+        await sock.sendMessage(from, { text: 'Maaf, saya sedang memproses terlalu banyak data sejenak. Coba tanyakan lagi ya!' });
     }
 }
 
