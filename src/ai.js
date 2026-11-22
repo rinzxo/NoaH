@@ -22,15 +22,15 @@ const tools = [
             properties: {
                 pesan: {
                     type: 'STRING',
-                    description: 'Isi pengingat atau tugas (contoh: "Minum obat", "Meeting klien", "Transfer tagihan").'
-                },
-                menit_dari_sekarang: {
-                    type: 'NUMBER',
-                    description: 'Jumlah menit dari sekarang pengingat harus berdering.'
+                    description: 'Isi pengingat atau tugas (contoh: "Minum obat", "Meeting klien", "Ngerjain PR").'
                 },
                 jam_spesifik: {
                     type: 'STRING',
-                    description: 'Jam spesifik berbunyi format HH:mm (contoh: "14:30", "09:00").'
+                    description: 'Waktu berbunyi spesifik dalam format 24 jam Waktu Indonesia Barat (WIB), contoh: "20:00" untuk jam 8 malam, "08:00" untuk jam 8 pagi, "14:30" untuk jam setengah 3 siang. UTAMAKAN parameter ini jika user menyebutkan jam tertentu!'
+                },
+                menit_dari_sekarang: {
+                    type: 'NUMBER',
+                    description: 'HANYA gunakan jika user meminta durasi relatif dari sekarang, contoh: "10 menit lagi" (isi 10) atau "1 jam lagi" (isi 60). JANGAN gunakan jika user menyebutkan jam spesifik!'
                 },
                 dengan_telepon: {
                     type: 'BOOLEAN',
@@ -204,11 +204,16 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
                 const { pesan, menit_dari_sekarang, jam_spesifik, dengan_telepon } = call.args;
                 let targetDate = null;
 
-                if (menit_dari_sekarang) {
-                    targetDate = new Date(Date.now() + Math.round(menit_dari_sekarang * 60 * 1000));
-                } else if (jam_spesifik) {
+                // Prioritaskan jam_spesifik terlebih dahulu jika user menyebutkan jam!
+                if (jam_spesifik) {
                     targetDate = reminder.parseRelativeTime(jam_spesifik);
+                } else if (menit_dari_sekarang) {
+                    targetDate = new Date(Date.now() + Math.round(menit_dari_sekarang * 60 * 1000));
                 } else {
+                    targetDate = new Date(Date.now() + 10 * 60 * 1000);
+                }
+
+                if (!targetDate) {
                     targetDate = new Date(Date.now() + 10 * 60 * 1000);
                 }
 

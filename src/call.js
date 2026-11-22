@@ -1,8 +1,65 @@
 const googleTTS = require('google-tts-api');
+const { spawn } = require('child_process');
 const config = require('./config');
 
 /**
- * Generate audio buffer (MP3) untuk pesan suara WA (PTT Voice Note)
+ * Konversi buffer MP3 ke buffer Opus Ogg agar kompatibel 100% sebagai WhatsApp Voice Note (PTT)
+ */
+function convertMp3ToOpusOgg(mp3Buffer) {
+    return new Promise((resolve) => {
+        try {
+            const ffmpeg = spawn('ffmpeg', [
+                '-i', 'pipe:0',
+                '-c:a', 'libopus',
+                '-b:a', '32k',
+                '-vbr', 'on',
+                '-compression_level', '10',
+                '-f', 'ogg',
+                'pipe:1'
+            ]);
+
+            const chunks = [];
+            ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
+            ffmpeg.stdout.on('end', () => {
+                if (chunks.length > 0) {
+                    resolve({
+                        buffer: Buffer.concat(chunks),
+                        mimetype: 'audio/ogg; codecs=opus',
+                        ptt: true
+                    });
+                } else {
+                    resolve({
+                        buffer: mp3Buffer,
+                        mimetype: 'audio/mpeg',
+                        ptt: false
+                    });
+                }
+            });
+
+            ffmpeg.stderr.on('data', () => {});
+            ffmpeg.on('error', (err) => {
+                console.warn('[FFMPEG] Gagal konversi Opus Ogg, fallback ke audio MP3:', err.message);
+                resolve({
+                    buffer: mp3Buffer,
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                });
+            });
+
+            ffmpeg.stdin.write(mp3Buffer);
+            ffmpeg.stdin.end();
+        } catch (e) {
+            resolve({
+                buffer: mp3Buffer,
+                mimetype: 'audio/mpeg',
+                ptt: false
+            });
+        }
+    });
+}
+
+/**
+ * Generate audio buffer untuk pesan suara WA (PTT Voice Note)
  */
 async function generateVoiceNoteBuffer(text) {
     try {
@@ -13,7 +70,8 @@ async function generateVoiceNoteBuffer(text) {
             host: 'https://translate.google.com',
             timeout: 10000
         });
-        return Buffer.from(base64, 'base64');
+        const mp3Buffer = Buffer.from(base64, 'base64');
+        return await convertMp3ToOpusOgg(mp3Buffer);
     } catch (err) {
         console.error('[TTS] Gagal generate audio:', err.message);
         return null;

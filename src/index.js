@@ -207,12 +207,12 @@ async function checkUrgentAlertInBackground(body, from, pushName, senderPhone) {
                 await botSock.sendMessage(ownerTargetJid, { text: urgentAlert });
                 try {
                     const voiceText = `Pak Laksmana, ada pesan darurat masuk dari ${pushName}. ${aiAnalysis.urgentSummary || 'Mohon segera periksa WhatsApp Anda.'}`;
-                    const audioBuffer = await generateVoiceNoteBuffer(voiceText);
-                    if (audioBuffer) {
+                    const voiceData = await generateVoiceNoteBuffer(voiceText);
+                    if (voiceData && voiceData.buffer) {
                         await botSock.sendMessage(ownerTargetJid, {
-                            audio: audioBuffer,
-                            mimetype: 'audio/mp4',
-                            ptt: true
+                            audio: voiceData.buffer,
+                            mimetype: voiceData.mimetype || 'audio/ogg; codecs=opus',
+                            ptt: voiceData.ptt !== false
                         });
                     }
                 } catch (e) {
@@ -664,12 +664,12 @@ function startReminderScheduler() {
 
                 if (item.voiceNote) {
                     try {
-                        const voiceBuffer = await generateVoiceNoteBuffer(`Halo Pak Laksmana, ini pengingat untuk Anda: ${item.text}`);
-                        if (voiceBuffer) {
+                        const voiceData = await generateVoiceNoteBuffer(`Halo Pak Laksmana, ini pengingat untuk Anda: ${item.text}`);
+                        if (voiceData && voiceData.buffer) {
                             await botSock.sendMessage(item.targetJid, {
-                                audio: voiceBuffer,
-                                mimetype: 'audio/mp4',
-                                ptt: true
+                                audio: voiceData.buffer,
+                                mimetype: voiceData.mimetype || 'audio/ogg; codecs=opus',
+                                ptt: voiceData.ptt !== false
                             });
                         }
                     } catch (e) {

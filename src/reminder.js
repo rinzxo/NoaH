@@ -34,36 +34,68 @@ function parseRelativeTime(input) {
     const trimmed = input.trim().toLowerCase();
     const now = new Date();
 
-    // 10m / 10 menit
-    const minuteMatch = trimmed.match(/^(\d+)\s*(m|menit|mins?|minutes?)$/);
+    // 1. Relatif menit: 10m / 10 menit
+    const minuteMatch = trimmed.match(/^(\d+)\s*(m|menit|mins?|minutes?)$/i);
     if (minuteMatch) {
         return new Date(now.getTime() + parseInt(minuteMatch[1], 10) * 60 * 1000);
     }
 
-    // 2 jam / 2h
-    const hourMatch = trimmed.match(/^(\d+)\s*(h|jam|hours?)$/);
+    // 2. Relatif jam: 2 jam / 2h
+    const hourMatch = trimmed.match(/^(\d+)\s*(h|jam|hours?)$/i);
     if (hourMatch) {
         return new Date(now.getTime() + parseInt(hourMatch[1], 10) * 60 * 60 * 1000);
     }
 
-    // 1 hari / 1d
-    const dayMatch = trimmed.match(/^(\d+)\s*(d|hari|days?)$/);
+    // 3. Relatif hari: 1 hari / 1d
+    const dayMatch = trimmed.match(/^(\d+)\s*(d|hari|days?)$/i);
     if (dayMatch) {
         return new Date(now.getTime() + parseInt(dayMatch[1], 10) * 24 * 60 * 60 * 1000);
     }
 
-    // Waktu spesifik: 14:30 atau 09.15
-    const timeMatch = trimmed.match(/^(\d{1,2})[:.](\d{2})$/);
-    if (timeMatch) {
-        const hours = parseInt(timeMatch[1], 10);
-        const minutes = parseInt(timeMatch[2], 10);
-        const target = new Date(now);
-        target.setHours(hours, minutes, 0, 0);
-        // Jika jam sudah lewat hari ini, jadwalkan untuk besok
-        if (target.getTime() <= now.getTime()) {
-            target.setDate(target.getDate() + 1);
+    // 4. Waktu spesifik dalam WIB (Asia/Jakarta, UTC+7)
+    // Mendukung: "20:00", "08.30", "jam 8 malam", "8 malam", "setengah 9 malam", "jam 2 siang", dll.
+    let hours = -1;
+    let minutes = 0;
+
+    const setHourMatch = trimmed.match(/^setengah\s+(\d{1,2})\s*(pagi|siang|sore|malam)?$/i);
+    const indHourMatch = trimmed.match(/^(?:jam\s+)?(\d{1,2})(?::(\d{2})|\.(\d{2}))?\s*(pagi|siang|sore|malam)?$/i);
+
+    if (setHourMatch) {
+        let h = parseInt(setHourMatch[1], 10);
+        const period = (setHourMatch[2] || '').toLowerCase();
+        if ((period === 'malam' || period === 'sore') && h < 12) h += 12;
+        if (period === 'siang' && h < 12 && h <= 3) h += 12;
+        h = h - 1; // setengah 8 = 07:30
+        hours = h;
+        minutes = 30;
+    } else if (indHourMatch) {
+        let h = parseInt(indHourMatch[1], 10);
+        let m = parseInt(indHourMatch[2] || indHourMatch[3] || '0', 10);
+        const period = (indHourMatch[4] || '').toLowerCase();
+        if ((period === 'malam' || period === 'sore') && h < 12) h += 12;
+        if (period === 'siang' && h < 12 && (h === 1 || h === 2 || h === 3)) h += 12;
+        hours = h;
+        minutes = m;
+    }
+
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+        // Dapatkan tanggal hari ini di zona waktu Asia/Jakarta (WIB)
+        const jakartaStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
+        const jakartaDate = new Date(jakartaStr);
+
+        const targetYear = jakartaDate.getFullYear();
+        const targetMonth = jakartaDate.getMonth();
+        const targetDay = jakartaDate.getDate();
+
+        // Hitung milidetik UTC untuk jam WIB (WIB = UTC+7)
+        let targetUtcMs = Date.UTC(targetYear, targetMonth, targetDay, hours - 7, minutes, 0, 0);
+
+        // Jika jam tersebut sudah lewat hari ini di Jakarta, jadwalkan untuk besok
+        if (targetUtcMs <= now.getTime()) {
+            targetUtcMs += 24 * 60 * 60 * 1000;
         }
-        return target;
+
+        return new Date(targetUtcMs);
     }
 
     // Format ISO string / standard Date parse
