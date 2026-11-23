@@ -333,6 +333,7 @@ async function sendMessageToTarget(tujuan, pesan, sock) {
     } catch (e) {}
 
     await sock.sendMessage(target.jid, { text: pesan });
+    recordMessage(target.jid, config.ownerNumber, 'Laksmana', pesan, sock);
 
     try {
         await sock.sendPresenceUpdate('paused', target.jid);
