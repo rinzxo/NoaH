@@ -297,6 +297,25 @@ async function resolveDestination(tujuan, sock) {
         };
     }
 
+    // Cek apakah tujuan cocok dengan nama kontak/member yang pernah mengirim pesan
+    const q = tujuan.toLowerCase().trim();
+    for (const [gJid, gData] of Object.entries(groupData.groups)) {
+        if (gData.messages) {
+            for (const m of gData.messages) {
+                const sName = (m.sender || '').toLowerCase();
+                if (m.phone && (sName === q || sName.includes(q) || q.includes(sName))) {
+                    let phone = m.phone.replace(/\D/g, '');
+                    if (phone.startsWith('0')) phone = '62' + phone.slice(1);
+                    return {
+                        jid: `${phone}@s.whatsapp.net`,
+                        name: m.sender || `+${phone}`,
+                        isGroup: false
+                    };
+                }
+            }
+        }
+    }
+
     return null;
 }
 

@@ -38,8 +38,23 @@ loadAutonomy();
 
 function getAutonomy(jid) {
     if (!jid) return null;
-    const entry = autonomyState.chats[jid];
-    return (entry && entry.enabled) ? entry : null;
+    const normalized = jid.split('@')[0].split(':')[0];
+    const isGrp = jid.includes('@g.us');
+    const standardJid = `${normalized}@${isGrp ? 'g.us' : 's.whatsapp.net'}`;
+
+    let entry = autonomyState.chats[standardJid] || autonomyState.chats[jid];
+    if (entry && entry.enabled) return entry;
+
+    const cleanDigits = jid.replace(/\D/g, '');
+    if (cleanDigits.length >= 9) {
+        for (const item of Object.values(autonomyState.chats)) {
+            if (item.enabled && item.jid.replace(/\D/g, '') === cleanDigits) {
+                return item;
+            }
+        }
+    }
+
+    return null;
 }
 
 function hasAutonomy(jid) {

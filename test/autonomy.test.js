@@ -42,9 +42,18 @@ const mockSock = {
     assert.strictEqual(disabled.enabled, false);
     assert.strictEqual(autonomyManager.hasAutonomy('120363414687539494@g.us'), false);
 
-    // Test 6: re-enable
+    // Test 6: re-enable group
     await autonomyManager.setAutonomy('RG3C', 'Mewakili Pak Laksmana membahas video tutorial KitaAtur', mockSock);
     assert.strictEqual(autonomyManager.hasAutonomy('120363414687539494@g.us'), true);
+
+    // Test 7: setAutonomy for private contact phone number
+    const contactEntry = await autonomyManager.setAutonomy('081298765432', 'Wakili saya negosiasi project KitaPay dengan klien ini', mockSock);
+    assert(contactEntry, 'Contact entry must be created');
+    assert.strictEqual(contactEntry.jid, '6281298765432@s.whatsapp.net');
+    assert.strictEqual(contactEntry.isGroup, false);
+    assert.strictEqual(autonomyManager.hasAutonomy('6281298765432@s.whatsapp.net'), true);
+    // Test suffix normalization (:0@s.whatsapp.net)
+    assert.strictEqual(autonomyManager.hasAutonomy('6281298765432:0@s.whatsapp.net'), true);
 
     console.log('✅ All autonomy manager self-checks passed successfully!');
 })().catch(err => {
