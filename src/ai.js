@@ -195,7 +195,16 @@ Bapak Laksmana Ibrahim Rino adalah Founder & CEO dari Rinz Group Inovasi, sebuah
 Website resmi: rinzgroup.web.id.
 
 Waktu Jakarta: ${nowJakarta}.
-Bersikaplah sangat hormat, cerdas, hangat, sigap, dan solutif. Panggil beliau "Pak Laksmana" atau "Mas Laksmana".
+
+ATURAN KOMUNIKASI (SANGAT PENTING):
+1. BERBICARA SEPERLUNYA & NATURAL:
+   - Gunakan bahasa yang natural, santai tapi tetap sopan & hormat kepada Pak Laksmana.
+   - Jangan mengeluarkan teks panjang jika sekadar bertanya, mengonfirmasi, atau mengajukan sesuatu. Cukup 1 sampai 2 kalimat pendek yang lugas dan to-the-point.
+   - HINDARI basa-basi panjang, salam berulang, atau gaya bicara kaku seperti robot/surat dinas (CONTOH DILARANG: "Selamat pagi/siang Bapak Laksmana", "Mohon maaf atas ketidaknyamanan...", "Apakah ada hal lain yang bisa saya bantu, Pak?").
+   - Langsung ke inti jawaban atau tanyakan hal yang diperlukan secara wajar.
+2. JELAS, PADAT & SOLUTIF:
+   - Sampaikan informasi pentingnya saja. Jika beliau butuh penjelasan lebih detail, beliau akan bertanya lagi.
+
 Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
 1. Melihat, membaca, dan menganalisis gambar/foto/screenshot/dokumen (OCR) secara langsung dan visual. Jika Pak Laksmana mengirimkan foto jadwal pelajaran, agenda, catatan tugas, formulir, atau dokumen apa pun, baca seluruh teks dan detailnya dengan teliti, rangkumkan untuk beliau, dan buatkan jadwal pengingat jika diminta.
 2. Mengirim pesan secara langsung dan real-time ke grup WhatsApp mana pun yang diikuti Pak Laksmana atau ke kontak siapa pun atas perintah beliau menggunakan tool \`kirim_pesan_wa\`.
@@ -254,11 +263,7 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
                     call: Boolean(dengan_telepon)
                 });
 
-                const reply = `Siap Pak Laksmana! Pengingat telah saya jadwalkan:\n\n` +
-                    `📝 *Kegiatan:* ${item.text}\n` +
-                    `🕒 *Waktu:* ${item.targetTimeString}\n` +
-                    `🔔 *Notifikasi:* Teks WA + Voice Note ${item.call ? '+ Telepon Langsung' : ''}\n\n` +
-                    `Tenang saja, saya akan ingatkan tepat pada waktunya.`;
+                const reply = `Siap Pak, pengingat *"${item.text}"* sudah dijadwalkan untuk ${item.targetTimeString}. Nanti saya ingatkan ya.`;
 
                 addHistory(ownerChatHistory, 'user', historyUserText);
                 addHistory(ownerChatHistory, 'model', reply);
@@ -270,13 +275,10 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
                 const list = reminder.listReminders(senderJid);
                 let reply = '';
                 if (list.length === 0) {
-                    reply = 'Saat ini belum ada jadwal pengingat yang aktif, Pak Laksmana. Ada kegiatan atau tugas yang ingin saya jadwalkan?';
+                    reply = 'Belum ada jadwal pengingat yang aktif nih Pak.';
                 } else {
-                    reply = `📋 *Daftar Agenda & Pengingat Aktif (${list.length}):*\n\n`;
-                    list.forEach((item, idx) => {
-                        reply += `${idx + 1}. *${item.text}*\n   🕒 ${item.targetTimeString} (ID: ${item.id})\n\n`;
-                    });
-                    reply += `Beri tahu saya jika ada yang ingin disesuaikan atau dibatalkan ya Pak.`;
+                    reply = `📋 *Daftar Pengingat Aktif:*\n\n` +
+                        list.map((item, idx) => `${idx + 1}. *${item.text}* — ${item.targetTimeString}`).join('\n');
                 }
 
                 addHistory(ownerChatHistory, 'user', historyUserText);
@@ -299,12 +301,12 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
 
                 if (target) {
                     reminder.cancelReminder(target.id, senderJid);
-                    const reply = `Baik Pak Laksmana, pengingat *"${target.text}"* untuk ${target.targetTimeString} telah berhasil saya batalkan.`;
+                    const reply = `Pengingat *"${target.text}"* untuk ${target.targetTimeString} sudah dibatalkan ya Pak.`;
                     addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 } else {
-                    const reply = `Saya tidak menemukan jadwal pengingat tersebut Pak. Silakan katakan *"cek jadwal"* untuk melihat daftar yang aktif.`;
+                    const reply = `Pengingatnya tidak ditemukan Pak. Coba ketik *"cek jadwal"* untuk lihat daftarnya.`;
                     addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
@@ -318,11 +320,12 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
                 const rawSearch = await searchWeb(query);
 
                 const searchPrompt = `Bapak Laksmana bertanya: "${userText}".
-Berikut informasi terkini dari hasil pencarian web untuk "${query}":
+Hasil pencarian web untuk "${query}":
 ${rawSearch}
 
-Tugas:
-Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, akurat, dan sopan seperti asisten pribadi terbaik.`;
+TUGAS KOMUNIKASI (WAJIB):
+Jawab intinya saja secara natural, ringkas, dan to the point layaknya chat WhatsApp biasa (1-3 kalimat jika cukup). Bicaralah seperlunya.
+JANGAN membuat salam pembuka/penutup panjang, jangan bertele-tele, dan jangan gunakan gaya bahasa robot formal. Jika tidak ketemu infonya, katakan apa adanya secara santai.`;
 
                 const summaryResult = await modelGeneral.generateContent(searchPrompt);
                 const reply = summaryResult.response.text().trim();
@@ -364,13 +367,13 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
 
                 try {
                     const target = await groupManager.sendMessageToTarget(tujuan, pesan, ownerSock);
-                    const reply = `Siap Pak Laksmana! Pesan telah berhasil saya sampaikan ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}*:\n\n"${pesan}"`;
+                    const reply = `Pesan sudah terkirim ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}* ya Pak.`;
                     addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 } catch (err) {
                     console.error('[NoaH Send WA Error]:', err.message);
-                    const reply = `Maaf Pak Laksmana, gagal mengirim ke "${tujuan}": ${err.message}`;
+                    const reply = `Gagal kirim ke "${tujuan}": ${err.message}`;
                     addHistory(ownerChatHistory, 'user', historyUserText);
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
@@ -385,14 +388,12 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                 if (aktif) {
                     try {
                         const entry = await autonomyManager.setAutonomy(tujuan, instruksi, ownerSock);
-                        const reply = `Siap Pak Laksmana! Mandat otonomi untuk ${entry.isGroup ? 'grup' : 'obrolan'} *${entry.name}* telah AKTIF.\n\n` +
-                            `📌 *Mandat & Konteks:* "${entry.instruction}"\n\n` +
-                            `Mulai saat ini, jika ada pembahasan atau pertanyaan yang relevan di ${entry.name}, saya akan otomatis mewakili Bapak untuk merespons dan berdiskusi sesuai konteks. Setiap tindakan otonom juga akan saya laporkan ke nomor bot ini.`;
+                        const reply = `Siap Pak, otonomi di *${entry.name}* sudah aktif untuk: "${entry.instruction}". Nanti kalau ada bahasan yang relevan langsung saya tanggapi dan kabari Bapak.`;
                         addHistory(ownerChatHistory, 'user', historyUserText);
                         addHistory(ownerChatHistory, 'model', reply);
                         return reply;
                     } catch (err) {
-                        const reply = `Maaf Pak Laksmana, gagal mengaktifkan otonomi untuk "${tujuan}": ${err.message}`;
+                        const reply = `Gagal mengaktifkan otonomi untuk "${tujuan}": ${err.message}`;
                         addHistory(ownerChatHistory, 'user', historyUserText);
                         addHistory(ownerChatHistory, 'model', reply);
                         return reply;
@@ -401,12 +402,12 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                     try {
                         const removed = await autonomyManager.disableAutonomy(tujuan, ownerSock);
                         if (removed) {
-                            const reply = `Baik Pak Laksmana, mandat otonomi untuk *${removed.name}* telah resmi saya NONAKTIFKAN. Saya tidak akan lagi membalas pesan otomatis di sana.`;
+                            const reply = `Otonomi di *${removed.name}* sudah dinonaktifkan ya Pak.`;
                             addHistory(ownerChatHistory, 'user', historyUserText);
                             addHistory(ownerChatHistory, 'model', reply);
                             return reply;
                         } else {
-                            const reply = `Saya tidak menemukan status otonomi aktif untuk "${tujuan}", Pak. Ketik *"daftar otonomi"* untuk melihat daftar yang aktif.`;
+                            const reply = `Status otonomi untuk "${tujuan}" tidak ditemukan Pak.`;
                             addHistory(ownerChatHistory, 'user', historyUserText);
                             addHistory(ownerChatHistory, 'model', reply);
                             return reply;
@@ -463,7 +464,7 @@ Waktu saat ini: ${nowJakarta}.
 Laksmana sedang sibuk beraktivitas dan belum sempat membuka chat.
 
 Tugasmu:
-1. Buatkan balasan yang sangat sopan, ramah, dan profesional. Sampaikan bahwa kamu adalah NoaH, asisten pribadi Bapak Laksmana. Beritahu bahwa Laksmana sedang berhalangan/belum membuka ponsel, dan tampung pesan mereka dengan baik.
+1. Buatkan balasan yang natural, ramah, dan ringkas seperlunya (1-2 kalimat pendek). Sampaikan bahwa kamu NoaH (asisten Pak Laksmana) dan pesannya sudah dicatat karena Pak Laksmana sedang beraktivitas. JANGAN panjang atau bertele-tele.
 2. Analisis dengan teliti apakah isi pesan ini bersifat URGENT / MENDESAK / PENTING (contoh: urusan transfer/uang mendesak, janji temu saat ini juga, keluarga sakit/darurat, kendala server/sistem kritis, atau hal yang harus segera ditanggapi detik ini juga).
 
 Kembalikan HANYA format JSON valid tanpa backticks markdown:

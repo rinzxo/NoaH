@@ -86,12 +86,12 @@ function handleSettingsCommand(text) {
     if (/(matikan|nonaktifkan|stop|off)\s+auto\s*reply/i.test(clean)) {
         appSettings.autoReplyEnabled = false;
         saveSettings(appSettings);
-        return '🔴 *Auto-Reply Tamu Dinonaktifkan*\n\nBaik Pak Laksmana, fitur balasan otomatis untuk tamu di nomor pribadi Anda telah saya *NONAKTIFKAN*. NoaH tidak akan membalas pesan tamu sama sekali.';
+        return '🔴 Auto-reply tamu sudah dinonaktifkan ya Pak.';
     }
     if (/(nyalakan|aktifkan|hidupkan|on)\s+auto\s*reply/i.test(clean)) {
         appSettings.autoReplyEnabled = true;
         saveSettings(appSettings);
-        return `🟢 *Auto-Reply Tamu Diaktifkan*\n\nSiap Pak Laksmana! Balasan otomatis untuk pesan tamu telah *DIAKTIFKAN* kembali dengan jeda cerdas ${appSettings.delayMinutes || 3} menit.\n\nNoaH *TIDAK AKAN* membalas jika:\n1. Anda sedang aktif chatting di WhatsApp.\n2. Anda baru saja mengobrol dengan kontak tersebut.\n3. Anda membalas pesan tamu sebelum jeda waktu habis.`;
+        return `🟢 Auto-reply tamu aktif kembali (jeda ${appSettings.delayMinutes || 3} menit).`;
     }
     const delayMatch = clean.match(/(?:jeda|delay)\s+auto\s*reply\s+(?:jadi\s+)?(\d+)\s*(?:menit|m)?/i);
     if (delayMatch) {
@@ -99,12 +99,12 @@ function handleSettingsCommand(text) {
         if (mins >= 1 && mins <= 60) {
             appSettings.delayMinutes = mins;
             saveSettings(appSettings);
-            return `⏱️ *Jeda Auto-Reply Diperbarui*\n\nSiap Pak Laksmana! Jeda waktu tunggu sebelum NoaH membalas pesan tamu diubah menjadi *${mins} menit*.`;
+            return `⏱️ Jeda auto-reply diubah jadi ${mins} menit ya Pak.`;
         }
     }
     if (/(status|cek)\s+auto\s*reply/i.test(clean)) {
         const status = appSettings.autoReplyEnabled ? '🟢 AKTIF' : '🔴 NONAKTIF';
-        return `ℹ️ *Status Auto-Reply NoaH:*\n\n• Status: *${status}*\n• Jeda waktu tunggu: *${appSettings.delayMinutes || 3} menit*\n\n_Ketik "matikan auto reply" untuk mematikan, atau "jeda auto reply 5 menit" untuk mengubah jeda waktu._`;
+        return `ℹ️ *Status Auto-Reply:* ${status}\n⏱️ *Jeda Tunggu:* ${appSettings.delayMinutes || 3} menit`;
     }
     return null;
 }
@@ -130,9 +130,9 @@ async function handleSendDirectCommand(text) {
         if (targetQuery && msgText && ownerSock) {
             try {
                 const target = await groupManager.sendMessageToTarget(targetQuery, msgText, ownerSock);
-                return `Siap Pak Laksmana! Pesan telah berhasil saya sampaikan ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}*:\n\n"${msgText}"`;
+                return `Pesan sudah terkirim ke ${target.isGroup ? 'grup' : 'kontak'} *${target.name}* ya Pak.`;
             } catch (e) {
-                return `Gagal mengirim ke "${targetQuery}": ${e.message}`;
+                return `Gagal kirim ke "${targetQuery}": ${e.message}`;
             }
         }
     }
@@ -151,9 +151,9 @@ async function handleAutonomyCommand(text) {
         const target = stopMatch[1].trim();
         const res = await autonomyManager.disableAutonomy(target, ownerSock);
         if (res) {
-            return `Baik Pak Laksmana, mandat otonomi untuk *${res.name}* telah resmi saya *NONAKTIFKAN*.`;
+            return `Mandat otonomi untuk *${res.name}* sudah dinonaktifkan ya Pak.`;
         }
-        return `Saya tidak menemukan status otonomi aktif untuk "${target}", Pak. Ketik *"daftar otonomi"* untuk melihat daftar yang aktif.`;
+        return `Status otonomi untuk "${target}" tidak ditemukan Pak.`;
     }
 
     // otonomi [target] : [instruksi]
@@ -164,9 +164,7 @@ async function handleAutonomyCommand(text) {
         if (target && instruction) {
             try {
                 const entry = await autonomyManager.setAutonomy(target, instruction, ownerSock);
-                return `Siap Pak Laksmana! Mandat otonomi untuk ${entry.isGroup ? 'grup' : 'obrolan'} *${entry.name}* telah AKTIF.\n\n` +
-                    `📌 *Mandat & Konteks:* "${entry.instruction}"\n\n` +
-                    `Mulai saat ini, jika ada pembahasan atau pertanyaan yang relevan di ${entry.name}, saya akan otomatis mewakili Bapak untuk merespons dan berdiskusi sesuai konteks. Setiap tindakan otonom juga akan saya laporkan ke nomor bot ini.`;
+                return `Siap Pak, otonomi di *${entry.name}* sudah aktif untuk: "${entry.instruction}". Nanti kalau ada yang perlu ditanggapi langsung saya wakili dan kabari Bapak.`;
             } catch (e) {
                 return `Gagal mengaktifkan otonomi untuk "${target}": ${e.message}`;
             }
