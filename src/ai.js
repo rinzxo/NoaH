@@ -3,6 +3,7 @@ const config = require('./config');
 const reminder = require('./reminder');
 const { searchWeb } = require('./search');
 const groupManager = require('./groupManager');
+const autonomyManager = require('./autonomyManager');
 
 let genAI = null;
 let modelWithTools = null;
@@ -117,6 +118,36 @@ const tools = [
             },
             required: ['tujuan', 'pesan']
         }
+    },
+    {
+        name: 'atur_otonomi_chat',
+        description: 'Memberikan mandat otonomi atau mencabut mandat otonomi agar NoaH aktif dan otomatis mewakili Pak Laksmana di grup atau obrolan tertentu untuk membahas konteks spesifik secara langsung.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {
+                tujuan: {
+                    type: 'STRING',
+                    description: 'Nama grup atau nama kontak yang ingin diberikan/dicabut otonomi (contoh: "RG3C+ Komisi C SMANDU", "OSIS", "M. Nazriel").'
+                },
+                aktif: {
+                    type: 'BOOLEAN',
+                    description: 'True jika ingin mengaktifkan mandat otonomi, False jika ingin mematikan/mencabut otonomi.'
+                },
+                instruksi: {
+                    type: 'STRING',
+                    description: 'Konteks atau mandat spesifik yang harus dibahas dan diwakili oleh NoaH atas nama Pak Laksmana (contoh: "Bahas pengerjaan video tutorial KitaAtur malam ini, konfirmasi kesiapan materi, dan bantu jawab pertanyaan seputar KitaAtur").'
+                }
+            },
+            required: ['tujuan', 'aktif']
+        }
+    },
+    {
+        name: 'lihat_daftar_otonomi',
+        description: 'Melihat seluruh daftar obrolan atau grup yang saat ini memiliki status otonomi aktif beserta instruksi khususnya.',
+        parameters: {
+            type: 'OBJECT',
+            properties: {}
+        }
     }
 ];
 
@@ -170,7 +201,8 @@ Kamu MEMILIKI KEMAMPUAN LENGKAP untuk:
 2. Mengirim pesan secara langsung dan real-time ke grup WhatsApp mana pun yang diikuti Pak Laksmana atau ke kontak siapa pun atas perintah beliau menggunakan tool \`kirim_pesan_wa\`.
 3. Merangkum obrolan grup WhatsApp (\`rangkum_grup\` atau \`daftar_grup\`).
 4. Membuat jadwal/agenda (\`buat_pengingat\`, \`lihat_daftar_pengingat\`, \`batalkan_pengingat\`).
-5. Mencari informasi web (\`cari_informasi_web\`).]`;
+5. Mencari informasi web (\`cari_informasi_web\`).
+6. Mengatur mode otonomi khusus (\`atur_otonomi_chat\`, \`lihat_daftar_otonomi\`) ketika Pak Laksmana ingin kamu otomatis mewakili beliau dan berdiskusi di grup atau obrolan tertentu untuk membahas konteks spesifik secara langsung.]`;
 
     const userParts = [];
     if (media && media.buffer) {
@@ -343,6 +375,57 @@ Jawab dan jelaskan informasi di atas kepada Pak Laksmana secara ringkas, jelas, 
                     addHistory(ownerChatHistory, 'model', reply);
                     return reply;
                 }
+            }
+
+            // Tool: atur_otonomi_chat
+            if (call.name === 'atur_otonomi_chat') {
+                const { tujuan, aktif, instruksi } = call.args;
+                const ownerSock = socketGetter?.getOwnerSock ? socketGetter.getOwnerSock() : null;
+
+                if (aktif) {
+                    try {
+                        const entry = await autonomyManager.setAutonomy(tujuan, instruksi, ownerSock);
+                        const reply = `Siap Pak Laksmana! Mandat otonomi untuk ${entry.isGroup ? 'grup' : 'obrolan'} *${entry.name}* telah AKTIF.\n\n` +
+                            `📌 *Mandat & Konteks:* "${entry.instruction}"\n\n` +
+                            `Mulai saat ini, jika ada pembahasan atau pertanyaan yang relevan di ${entry.name}, saya akan otomatis mewakili Bapak untuk merespons dan berdiskusi sesuai konteks. Setiap tindakan otonom juga akan saya laporkan ke nomor bot ini.`;
+                        addHistory(ownerChatHistory, 'user', historyUserText);
+                        addHistory(ownerChatHistory, 'model', reply);
+                        return reply;
+                    } catch (err) {
+                        const reply = `Maaf Pak Laksmana, gagal mengaktifkan otonomi untuk "${tujuan}": ${err.message}`;
+                        addHistory(ownerChatHistory, 'user', historyUserText);
+                        addHistory(ownerChatHistory, 'model', reply);
+                        return reply;
+                    }
+                } else {
+                    try {
+                        const removed = await autonomyManager.disableAutonomy(tujuan, ownerSock);
+                        if (removed) {
+                            const reply = `Baik Pak Laksmana, mandat otonomi untuk *${removed.name}* telah resmi saya NONAKTIFKAN. Saya tidak akan lagi membalas pesan otomatis di sana.`;
+                            addHistory(ownerChatHistory, 'user', historyUserText);
+                            addHistory(ownerChatHistory, 'model', reply);
+                            return reply;
+                        } else {
+                            const reply = `Saya tidak menemukan status otonomi aktif untuk "${tujuan}", Pak. Ketik *"daftar otonomi"* untuk melihat daftar yang aktif.`;
+                            addHistory(ownerChatHistory, 'user', historyUserText);
+                            addHistory(ownerChatHistory, 'model', reply);
+                            return reply;
+                        }
+                    } catch (err) {
+                        const reply = `Gagal menonaktifkan otonomi: ${err.message}`;
+                        addHistory(ownerChatHistory, 'user', historyUserText);
+                        addHistory(ownerChatHistory, 'model', reply);
+                        return reply;
+                    }
+                }
+            }
+
+            // Tool: lihat_daftar_otonomi
+            if (call.name === 'lihat_daftar_otonomi') {
+                const reply = autonomyManager.formatAutonomyList();
+                addHistory(ownerChatHistory, 'user', historyUserText);
+                addHistory(ownerChatHistory, 'model', reply);
+                return reply;
             }
         }
 

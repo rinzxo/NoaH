@@ -322,8 +322,14 @@ async function sendMessageToTarget(tujuan, pesan, sock) {
     return target;
 }
 
+function getRecentMessages(groupJid, limit = 20) {
+    if (!groupData.groups[groupJid] || !groupData.groups[groupJid].messages) return [];
+    return groupData.groups[groupJid].messages.slice(-limit);
+}
+
 module.exports = {
     recordMessage,
+    getRecentMessages,
     getGroupListFormatted,
     summarize,
     resolveGroupName,

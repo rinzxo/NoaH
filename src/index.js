@@ -20,6 +20,7 @@ const reminder = require('./reminder');
 const { generateVoiceNoteBuffer, triggerPhoneCall } = require('./call');
 const ai = require('./ai');
 const groupManager = require('./groupManager');
+const autonomyManager = require('./autonomyManager');
 
 const logger = pino({ level: 'silent' });
 
@@ -135,6 +136,43 @@ async function handleSendDirectCommand(text) {
             }
         }
     }
+    return null;
+}
+
+async function handleAutonomyCommand(text) {
+    const clean = text.toLowerCase().trim();
+    if (clean === 'daftar otonomi' || clean === 'list otonomi' || clean === 'status otonomi' || clean === 'cek otonomi') {
+        return autonomyManager.formatAutonomyList();
+    }
+
+    // matikan otonomi [target]
+    const stopMatch = text.match(/^(?:noah\s+)?(?:matikan|nonaktifkan|stop|hapus|cabut)\s+otonomi\s+(?:di\s+)?(?:grup\s+|kontak\s+)?(.+)$/i);
+    if (stopMatch) {
+        const target = stopMatch[1].trim();
+        const res = await autonomyManager.disableAutonomy(target, ownerSock);
+        if (res) {
+            return `Baik Pak Laksmana, mandat otonomi untuk *${res.name}* telah resmi saya *NONAKTIFKAN*.`;
+        }
+        return `Saya tidak menemukan status otonomi aktif untuk "${target}", Pak. Ketik *"daftar otonomi"* untuk melihat daftar yang aktif.`;
+    }
+
+    // otonomi [target] : [instruksi]
+    const setMatch = text.match(/^(?:noah\s+)?(?:aktifkan\s+|atur\s+)?otonomi\s+(?:di\s+)?(?:grup\s+|kontak\s+)?([^:]+?)\s*:\s*([\s\S]+)$/i);
+    if (setMatch) {
+        const target = setMatch[1].trim();
+        const instruction = setMatch[2].trim();
+        if (target && instruction) {
+            try {
+                const entry = await autonomyManager.setAutonomy(target, instruction, ownerSock);
+                return `Siap Pak Laksmana! Mandat otonomi untuk ${entry.isGroup ? 'grup' : 'obrolan'} *${entry.name}* telah AKTIF.\n\n` +
+                    `📌 *Mandat & Konteks:* "${entry.instruction}"\n\n` +
+                    `Mulai saat ini, jika ada pembahasan atau pertanyaan yang relevan di ${entry.name}, saya akan otomatis mewakili Bapak untuk merespons dan berdiskusi sesuai konteks. Setiap tindakan otonom juga akan saya laporkan ke nomor bot ini.`;
+            } catch (e) {
+                return `Gagal mengaktifkan otonomi untuk "${target}": ${e.message}`;
+            }
+        }
+    }
+
     return null;
 }
 
@@ -400,6 +438,11 @@ async function startBotSocket() {
                 await replyWithTyping(botSock, from, sendReply, typingStart);
                 return;
             }
+            const autonomyReply = await handleAutonomyCommand(body);
+            if (autonomyReply) {
+                await replyWithTyping(botSock, from, autonomyReply, typingStart);
+                return;
+            }
             const reply = await ai.handleOwnerMessage(body, from, media);
             if (reply) {
                 await replyWithTyping(botSock, from, reply, typingStart);
@@ -489,13 +532,27 @@ async function startOwnerSocket() {
         const body = extractMessageText(msg.message);
 
         // KASUS KHUSUS: Pesan dari Grup WhatsApp (@g.us)
-        // Rekam obrolan secara pasif (NoaH DILARANG KERAS bersuara/mengirim pesan ke grup)
+        // Rekam obrolan dan proses otonomi jika grup memiliki mandat aktif dari Pak Laksmana
         if (from.endsWith('@g.us')) {
             if (body) {
                 const participant = msg.key.participant || msg.participant || '';
                 const senderPhone = resolveSender(participant, config.ownerSessionDir);
                 const pushName = msg.pushName || (msg.key.fromMe ? 'Laksmana' : senderPhone) || 'Member';
                 groupManager.recordMessage(from, senderPhone, pushName, body, ownerSock);
+
+                // Cek dan proses jika grup ini memiliki mandat otonomi aktif!
+                autonomyManager.onMessageReceived({
+                    jid: from,
+                    isGroup: true,
+                    fromMe: Boolean(msg.key.fromMe),
+                    senderPhone,
+                    pushName,
+                    body,
+                    sock: ownerSock,
+                    botSock,
+                    geminiModel: ai.getModelGeneral(),
+                    replyWithTyping
+                });
             }
             if (msg.key.fromMe) {
                 lastOwnerGlobalActivity = Date.now();
@@ -565,6 +622,11 @@ async function startOwnerSocket() {
                         await replyWithTyping(ownerSock, from, sendReply, typingStart);
                         return;
                     }
+                    const autonomyReply = await handleAutonomyCommand(body);
+                    if (autonomyReply) {
+                        await replyWithTyping(ownerSock, from, autonomyReply, typingStart);
+                        return;
+                    }
                     const reply = await ai.handleOwnerMessage(body, from, media);
                     if (reply) {
                         await replyWithTyping(ownerSock, from, reply, typingStart);
@@ -581,6 +643,23 @@ async function startOwnerSocket() {
 
         const pushName = msg.pushName || chatKey || 'Tamu';
         console.log(`[Owner Socket] Tamu (${pushName} - ${chatKey}): "${body}"`);
+
+        // 0. Cek apakah obrolan ini memiliki mandat otonomi aktif
+        if (autonomyManager.hasAutonomy(from)) {
+            autonomyManager.onMessageReceived({
+                jid: from,
+                isGroup: false,
+                fromMe: false,
+                senderPhone: chatKey,
+                pushName,
+                body,
+                sock: ownerSock,
+                botSock,
+                geminiModel: ai.getModelGeneral(),
+                replyWithTyping
+            });
+            return;
+        }
 
         // 1. Cek apakah fitur auto-reply diaktifkan
         if (!appSettings.autoReplyEnabled) {
